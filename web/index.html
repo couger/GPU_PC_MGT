@@ -1,0 +1,622 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>性能 · 本机与远程</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root{
+    --bg:#1b1b1b; --card:#272727; --card2:#2e2e2e; --line:#3a3a3a;
+    --fg:#f3f3f3; --fg2:#c8c8c8; --dim:#9a9a9a;
+    --cpu:#4cc2ff; --mem:#b98cff; --disk:#63d17a; --net:#4cc2ff; --gpu:#ffb347;
+    --ok:#63d17a; --bad:#ff6b6b;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--fg);
+    font:13px/1.45 "Segoe UI Variable Text","Segoe UI","Microsoft YaHei UI",system-ui,sans-serif}
+  #top{display:flex;align-items:center;gap:12px;padding:10px 16px;background:#202020;
+    border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5}
+  #top h1{font-size:15px;font-weight:600;margin:0}
+  #top .spacer{flex:1}
+  .status{color:var(--dim);font-size:12px}
+  .status.bad{color:var(--bad)}
+  #grid{display:flex;flex-wrap:wrap;gap:14px;padding:14px;align-items:flex-start}
+  .host{flex:1 1 520px;min-width:420px;max-width:900px;display:flex;flex-direction:column;gap:10px}
+  .host-head{display:flex;align-items:center;gap:8px;padding:2px 2px 0}
+  .host-head h2{font-size:14px;font-weight:600;margin:0}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--dim);flex:none}
+  .dot.ok{background:var(--ok)} .dot.bad{background:var(--bad)}
+  .badge{font-size:11px;color:var(--fg2);background:#333;border:1px solid var(--line);
+    border-radius:10px;padding:1px 7px}
+  .meta{font-size:11.5px;color:var(--dim);margin-left:auto;text-align:right}
+  .err{background:#3a1f1f;border:1px solid #6b2f2f;color:#ffc9c9;border-radius:6px;
+    padding:8px 10px;font-size:12px;white-space:pre-wrap}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+  .card-head{display:flex;align-items:baseline;gap:8px;padding:7px 11px;background:var(--card2);
+    border-bottom:1px solid var(--line)}
+  .card-title{font-weight:600;font-size:12.5px}
+  .card-note{font-size:11px;color:var(--dim);margin-left:auto;text-align:right;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:65%}
+  .card-body{display:flex;gap:12px;padding:11px}
+  .card-body.two > .left{flex:1 1 58%;min-width:0}
+  .card-body.two > .right{flex:1 1 42%;min-width:0;border-left:1px solid var(--line);padding-left:12px}
+  .big{font-size:30px;font-weight:300;letter-spacing:-.5px;line-height:1.1}
+  .big.small{font-size:22px}
+  .sub{font-size:11.5px;color:var(--fg2);margin-top:2px;min-height:16px}
+  .mini-title{font-size:11px;color:var(--dim);margin-bottom:6px}
+  canvas.spark{display:block;width:100%;height:56px;margin-top:8px;border-radius:3px;background:#171717}
+  canvas.spark.tall{height:78px}
+  .bar{height:8px;background:#171717;border-radius:4px;overflow:hidden;margin-top:8px}
+  .bar.mt{margin-top:10px}
+  .bar-in{height:100%;width:0%;background:var(--mem);transition:width .25s linear}
+  .cores{display:grid;grid-template-columns:repeat(auto-fill,minmax(52px,1fr));gap:4px}
+  .core{background:#171717;border-radius:3px;padding:2px}
+  .core canvas{display:block;width:100%;height:30px}
+  .core span{display:block;font-size:9.5px;color:var(--dim);text-align:center}
+  .engine{display:flex;align-items:center;gap:7px;font-size:11.5px;margin-bottom:3px}
+  .engine .name{flex:0 0 72px;color:var(--fg2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .engine .track{flex:1;height:6px;background:#171717;border-radius:3px;overflow:hidden}
+  .engine .fill{height:100%;width:0%;background:var(--gpu);transition:width .25s linear}
+  .engine .val{flex:0 0 38px;text-align:right;color:var(--dim)}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:9px}
+  .chip{background:#1f1f1f;border:1px solid var(--line);border-radius:5px;padding:3px 7px;font-size:11.5px}
+  .chip b{font-weight:600}
+  .vols{display:flex;flex-direction:column;gap:7px}
+  .vol .vt{display:flex;justify-content:space-between;font-size:11.5px;color:var(--fg2)}
+  .vol .bar{height:6px;margin-top:3px}
+  .vol .bar-in{background:var(--disk)}
+  .hint{color:var(--dim);font-size:11.5px}
+</style>
+</head>
+<body>
+<div id="top">
+  <h1>性能</h1>
+  <div class="spacer"></div>
+  <div id="status" class="status">正在连接采集端…</div>
+</div>
+<main id="grid"></main>
+
+<template id="hostTpl">
+  <section class="host">
+    <header class="host-head">
+      <span class="dot" data-f="dot"></span>
+      <h2 data-f="title">—</h2>
+      <span class="badge" data-f="channel">—</span>
+      <span class="meta" data-f="osmeta"></span>
+    </header>
+    <div class="err" data-f="err" hidden></div>
+
+    <section class="card">
+      <div class="card-head"><span class="card-title">CPU</span><span class="card-note" data-f="cpuNote"></span></div>
+      <div class="card-body two">
+        <div class="left">
+          <div class="big" data-f="cpuPct">–</div>
+          <div class="sub" data-f="cpuSub">–</div>
+          <canvas class="spark tall" data-f="cpuSpark"></canvas>
+        </div>
+        <div class="right">
+          <div class="mini-title">逻辑处理器</div>
+          <div class="cores" data-f="cores"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-head"><span class="card-title">内存</span><span class="card-note" data-f="memNote"></span></div>
+      <div class="card-body two">
+        <div class="left">
+          <div class="big" data-f="memPct">–</div>
+          <div class="sub" data-f="memSub">–</div>
+          <div class="bar"><div class="bar-in" data-f="memBarIn"></div></div>
+          <canvas class="spark" data-f="memSpark"></canvas>
+        </div>
+        <div class="right">
+          <div class="mini-title">磁盘容量</div>
+          <div class="vols" data-f="vols"><div class="hint">无数据</div></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-head"><span class="card-title">磁盘 / 网络</span><span class="card-note" data-f="diskNote"></span></div>
+      <div class="card-body two">
+        <div class="left">
+          <div class="big" data-f="diskPct">–</div>
+          <div class="sub" data-f="diskSub">–</div>
+          <canvas class="spark" data-f="diskSpark"></canvas>
+        </div>
+        <div class="right">
+          <div class="mini-title">网络吞吐</div>
+          <div class="big small" data-f="netRate">–</div>
+          <div class="sub" data-f="netSub">–</div>
+          <canvas class="spark" data-f="netSpark"></canvas>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-head"><span class="card-title">GPU</span><span class="card-note" data-f="gpuNote"></span></div>
+      <div class="card-body two">
+        <div class="left">
+          <div class="big" data-f="gpuPct">–</div>
+          <div class="sub" data-f="gpuSub">–</div>
+          <canvas class="spark tall" data-f="gpuSpark"></canvas>
+        </div>
+        <div class="right">
+          <div class="mini-title">引擎 / 显存 / 传感器</div>
+          <div class="engines" data-f="engines"><div class="hint">无 GPU 计数器</div></div>
+          <div class="bar mt"><div class="bar-in" data-f="vramBarIn"></div></div>
+          <div class="sub" data-f="vramSub"></div>
+          <div class="chips" data-f="gpuChips"></div>
+        </div>
+      </div>
+    </section>
+  </section>
+</template>
+
+<script>
+'use strict';
+const MAXPTS = 90;
+const DPR = () => window.devicePixelRatio || 1;
+
+const ENGINE_LABEL = {
+  '3d':'3D',
+  'high priority 3d':'3D（高优先级）',
+  'compute':'计算',
+  'high priority compute':'计算（高优先级）',
+  'copy':'复制',
+  'video decode':'视频解码',
+  'video encode':'视频编码',
+  'video codec':'视频编解码',
+  'video jpeg':'JPEG 解码',
+  'video processing':'视频处理',
+  'legacy overlay':'传统覆盖',
+  'optical flow':'光流',
+  'sc decode':'安全解码',
+  'sc encode':'安全编码',
+  'security':'安全',
+  'timer':'计时器',
+  'other':'其他'
+};
+
+const hist = new Map();
+const hosts = new Map();
+let lastGenerated = null;
+let lastOkAt = null;
+
+/* ---------- 工具 ---------- */
+function parsePath(p){
+  if (!p || p[0] !== '\\') return null;
+  const i = p.indexOf('\\', 2);
+  if (i < 0) return null;
+  const rest = p.slice(i + 1);
+  const j = rest.lastIndexOf('\\');
+  if (j < 0) return null;
+  const head = rest.slice(0, j);
+  const cnt  = rest.slice(j + 1).toLowerCase();
+  let obj = head, inst = '';
+  const k = head.indexOf('(');
+  if (k >= 0 && head.endsWith(')')) { obj = head.slice(0, k); inst = head.slice(k + 1, -1); }
+  return { obj: obj.toLowerCase(), inst: inst.toLowerCase(), cnt };
+}
+function fmtBytes(b){
+  if (b == null || !isFinite(b)) return '–';
+  const u = ['B','KB','MB','GB','TB']; let i = 0, v = b;
+  while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
+  return (v >= 100 || i <= 1 ? v.toFixed(0) : v.toFixed(1)) + ' ' + u[i];
+}
+function fmtBps(b){
+  if (b == null || !isFinite(b)) return '–';
+  if (b >= 1048576) return (b / 1048576).toFixed(1) + ' MB/s';
+  if (b >= 1024)    return (b / 1024).toFixed(0) + ' KB/s';
+  return b.toFixed(0) + ' B/s';
+}
+function fmtMbps(bps){
+  if (bps == null || !isFinite(bps)) return '–';
+  const mb = bps * 8 / 1e6;
+  if (mb >= 1000) return (mb / 1000).toFixed(2) + ' Gbps';
+  if (mb >= 1)    return mb.toFixed(1) + ' Mbps';
+  return (mb * 1000).toFixed(0) + ' Kbps';
+}
+function fmtUptime(iso){
+  if (!iso) return '';
+  const t = Date.parse(iso); if (isNaN(t)) return '';
+  let s = Math.max(0, (Date.now() - t) / 1000);
+  const d = Math.floor(s / 86400); s -= d * 86400;
+  const h = Math.floor(s / 3600);  s -= h * 3600;
+  const m = Math.floor(s / 60);
+  return (d ? d + '天' : '') + h + '小时' + m + '分';
+}
+function agoText(){
+  if (!lastOkAt) return '';
+  const s = (Date.now() - lastOkAt) / 1000;
+  return s < 1.5 ? '刚刚更新' : s.toFixed(0) + ' 秒前更新';
+}
+function byLength(a, b){ return a.length - b.length || a.localeCompare(b); }
+
+/* ---------- 画图 ---------- */
+function drawSeries(canvas, series, opts){
+  opts = opts || {};
+  const dpr = DPR();
+  const w = Math.max(40, canvas.clientWidth || 260);
+  const h = Math.max(24, canvas.clientHeight || 56);
+  if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
+    canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
+  }
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  ctx.strokeStyle = 'rgba(255,255,255,.06)'; ctx.lineWidth = 1;
+  for (let i = 1; i < 4; i++){ const y = Math.round(h * i / 4) + .5;
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke(); }
+  for (let i = 1; i < 8; i++){ const x = Math.round(w * i / 8) + .5;
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke(); }
+
+  let max = opts.max || 0;
+  if (!max){
+    for (const s of series) for (const v of s.data) if (isFinite(v) && v > max) max = v;
+    max = max * 1.25;
+  }
+  if (!isFinite(max) || max <= 0) max = 1;
+
+  for (const s of series){
+    const d = s.data;
+    if (!d || d.length < 2) continue;
+    const n = d.length, step = w / (n - 1);
+    const y = v => h - 1 - Math.min(Math.max(v, 0) / max, 1) * (h - 3);
+    if (s.fill){
+      ctx.beginPath(); ctx.moveTo(0, h);
+      for (let i = 0; i < n; i++) ctx.lineTo(i * step, y(d[i]));
+      ctx.lineTo((n - 1) * step, h); ctx.closePath();
+      const g = ctx.createLinearGradient(0, 0, 0, h);
+      g.addColorStop(0, s.fill); g.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = g; ctx.fill();
+    }
+    ctx.beginPath();
+    for (let i = 0; i < n; i++){ const x = i * step, yy = y(d[i]); i ? ctx.lineTo(x, yy) : ctx.moveTo(x, yy); }
+    ctx.strokeStyle = s.stroke; ctx.lineWidth = s.width || 1.4; ctx.stroke();
+  }
+}
+function push(key, obj, field, value){
+  if (!obj[field]) obj[field] = [];
+  obj[field].push(value == null || !isFinite(value) ? 0 : value);
+  if (obj[field].length > MAXPTS) obj[field].shift();
+}
+
+/* ---------- 数据模型 ---------- */
+function buildModel(d, info){
+  info = info || {};
+  const M = {};
+  for (const s of (d.counters || [])){
+    const q = parsePath(s.path); if (!q) continue;
+    (M[q.obj] = M[q.obj] || {});
+    (M[q.obj][q.inst] = M[q.obj][q.inst] || {});
+    M[q.obj][q.inst][q.cnt] = s.value;
+  }
+  const G = (o, i, c) => (M[o] && M[o][i] && M[o][i][c] !== undefined) ? M[o][i][c] : null;
+
+  // CPU
+  const pi = M['processor information'] || {};
+  const cores = [];
+  for (const inst of Object.keys(pi)){
+    if (!inst || /_total$/i.test(inst)) continue;
+    const v = pi[inst]['% processor utility'];
+    const t = pi[inst]['% processor time'];
+    const val = (v !== undefined ? v : t);
+    if (val === undefined) continue;
+    cores.push({ name: inst, v: val });
+  }
+  cores.sort((a, b) => byLength(a.name, b.name));
+  let cpuPct = G('processor information', '_total', '% processor utility');
+  if (cpuPct == null) cpuPct = G('processor information', '_total', '% processor time');
+  const cpuMhz  = G('processor information', '_total', 'processor frequency');
+  const cpuPerf = G('processor information', '_total', '% processor performance');
+
+  // 内存
+  const availMB = G('memory', '', 'available mbytes');
+  const committed = G('memory', '', 'committed bytes');
+  const commitLimit = G('memory', '', 'commit limit');
+  const cacheB = G('memory', '', 'cache bytes');
+  const totalB = info.ramTotalBytes || null;
+  const availB = availMB != null ? availMB * 1048576 : (info.ramAvailBytes || null);
+  const usedB = (totalB && availB != null) ? Math.max(0, totalB - availB) : null;
+  const memPct = (usedB != null && totalB) ? usedB / totalB * 100 : null;
+
+  // 磁盘
+  const diskActive = (() => { const idle = G('physicaldisk', '_total', '% idle time');
+    return idle == null ? null : Math.max(0, Math.min(100, 100 - idle)); })();
+  const diskR = G('physicaldisk', '_total', 'disk read bytes/sec');
+  const diskW = G('physicaldisk', '_total', 'disk write bytes/sec');
+  const diskQ = G('physicaldisk', '_total', 'avg. disk queue length');
+
+  // 网络
+  let rx = 0, tx = 0, busiest = null, busiestV = -1;
+  const ni = M['network interface'] || {};
+  for (const inst of Object.keys(ni)){
+    const bad = /loopback|isatap|teredo|pseudo|bluetooth|virtual|vmware|hyper-v|tap|tunnel/i.test(inst);
+    if (bad) continue;
+    const r = ni[inst]['bytes received/sec'] || 0;
+    const t = ni[inst]['bytes sent/sec'] || 0;
+    rx += r; tx += t;
+    if (r + t > busiestV) { busiestV = r + t; busiest = inst; }
+  }
+
+  // GPU 引擎（采集端已按 engtype 聚合，避免传输上百个进程级实例）
+  const engines = {};
+  for (const k of Object.keys(d.gpuEngines || {})){
+    const v = d.gpuEngines[k];
+    if (v == null) continue;
+    engines[String(k).toLowerCase()] = Number(v) || 0;
+  }
+  const vals = Object.values(engines);
+  let gpuPct = vals.length ? Math.max.apply(null, vals) : null;
+
+  const gam = M['gpu adapter memory'] || {};
+  let vramUsed = null, vramShared = null;
+  for (const inst of Object.keys(gam)){
+    const du = gam[inst]['dedicated usage'];
+    if (du != null && (vramUsed == null || du > vramUsed)) vramUsed = du;
+    const su = gam[inst]['shared usage'];
+    if (su != null && (vramShared == null || su > vramShared)) vramShared = su;
+  }
+
+  // 传感器：优先 nvidia-smi，其次 LibreHardwareMonitor
+  const sensors = { source: null, temp: null, power: null, powerLimit: null, fan: null, clock: null, extra: [] };
+  const smi = d.nvidia || [];
+  if (smi.length){
+    const g0 = smi[0];
+    sensors.source = 'nvidia-smi';
+    sensors.temp = g0.tempC; sensors.power = g0.powerW; sensors.powerLimit = g0.powerLimitW;
+    sensors.fan = g0.fanPct; sensors.clock = g0.clockMhz;
+    if (g0.memTotalMB) { vramUsed = (g0.memUsedMB || 0) * 1048576; }
+    sensors.extra = smi.map(g => ({ name: g.name, util: g.utilPct, temp: g.tempC, power: g.powerW,
+      fan: g.fanPct, memUsedMB: g.memUsedMB, memTotalMB: g.memTotalMB }));
+  } else if ((d.lhm || []).length){
+    sensors.source = 'LibreHardwareMonitor';
+    for (const s of d.lhm){
+      if (!/^\/gpu/i.test(s.identifier || '')) continue;
+      const t = (s.sensorType || '').toLowerCase();
+      if (t === 'temperature' && sensors.temp == null) sensors.temp = s.value;
+      else if (t === 'power' && sensors.power == null) sensors.power = s.value;
+      else if (t === 'fan' && sensors.fan == null) sensors.fan = s.value;
+      else if (t === 'clock' && sensors.clock == null) sensors.clock = s.value;
+    }
+  }
+  const vramTotal = (smi.length && smi[0].memTotalMB) ? smi[0].memTotalMB * 1048576
+    : ((info.gpuAdapters && info.gpuAdapters.length)
+        ? Math.max.apply(null, info.gpuAdapters.map(g => g.vramBytes || 0)) : null);
+
+  // 卷：总容量来自机器信息，可用空间优先用实时计数器
+  const ld = M['logicaldisk'] || {};
+  const infoVols = info.volumes || [];
+  const vols = [];
+  for (const inst of Object.keys(ld)){
+    if (inst === '_total') continue;
+    const freeMB = ld[inst]['free megabytes'];
+    const meta = infoVols.find(v => String(v.drive || '').toLowerCase() === inst.toLowerCase());
+    const free = freeMB != null ? freeMB * 1048576 : (meta ? meta.freeBytes : 0);
+    const size = meta ? meta.sizeBytes : 0;
+    const isDriveLetter = /^[a-z]:$/.test(inst);
+    if (!size && !isDriveLetter) continue;
+    vols.push({ drive: String(inst).toUpperCase(), sizeBytes: size, freeBytes: free });
+  }
+  if (!vols.length){
+    for (const v of infoVols) vols.push({ drive: v.drive, sizeBytes: v.sizeBytes, freeBytes: v.freeBytes });
+  }
+
+  return {
+    host: (info.hostname || d.host || '?'),
+    osCaption: info.osCaption || '', osBuild: info.osBuild || '',
+    cpuName: info.cpuName || '', cpuCores: info.cpuCores || 0, cpuLogical: info.cpuLogical || 0,
+    lastBoot: info.lastBoot || '',
+    gpuNames: (info.gpuAdapters || []).map(g => g.name)
+      .filter(n => n && !/microsoft (remote|basic) display/i.test(n)),
+    volumes: vols,
+    cpuPct: cpuPct == null ? 0 : cpuPct, cores,
+    cpuMhz, cpuPerf, cpuMaxMhz: info.cpuMaxMhz || 0,
+    ramTotalBytes: totalB, memUsedBytes: usedB, memAvailBytes: availB, memPct,
+    memCommittedBytes: committed, memCommitLimitBytes: commitLimit, memCacheBytes: cacheB,
+    diskActive: diskActive == null ? 0 : diskActive, diskReadBps: diskR, diskWriteBps: diskW, diskQueue: diskQ,
+    netRxBps: rx, netTxBps: tx, netAdapter: busiest,
+    gpuPct: gpuPct == null ? 0 : gpuPct, hasGpu: vals.length > 0, engines,
+    vramUsedBytes: vramUsed, vramSharedBytes: vramShared, vramTotalBytes: vramTotal,
+    sensors
+  };
+}
+
+/* ---------- DOM ---------- */
+function ensureHosts(targets){
+  const grid = document.getElementById('grid');
+  const seen = new Set();
+  for (const t of targets){
+    seen.add(t.name);
+    if (hosts.has(t.name)) continue;
+    const frag = document.getElementById('hostTpl').content.cloneNode(true);
+    const root = frag.querySelector('.host');
+    const refs = {};
+    root.querySelectorAll('[data-f]').forEach(el => { refs[el.dataset.f] = el; });
+    grid.appendChild(frag);
+    hosts.set(t.name, { root, refs, coreCanvases: [], coreCount: 0, engineRows: new Map() });
+  }
+  for (const [name, h] of hosts){
+    if (!seen.has(name)){ h.root.remove(); hosts.delete(name); hist.delete(name); }
+  }
+}
+
+function updateHost(t){
+  const h = hosts.get(t.name);
+  const r = h.refs, m = t.ok ? buildModel(t.data, t.info || {}) : null;
+
+  r.err.hidden = !!t.ok;
+  if (!t.ok) r.err.textContent = t.error || '采集失败';
+  r.dot.className = 'dot ' + (t.ok ? 'ok' : 'bad');
+  r.title.textContent = t.name + (m && m.host && m.host !== t.name ? ' · ' + m.host : '');
+  r.channel.textContent = t.channel;
+  r.osmeta.textContent = m
+    ? [m.osCaption + (m.osBuild ? ' (' + m.osBuild + ')' : ''), m.lastBoot ? '运行 ' + fmtUptime(m.lastBoot) : '']
+        .filter(Boolean).join(' · ')
+    : '';
+  if (!m) return;
+
+  const hh = hist.get(t.name) || { cores: {}, engines: {} };
+  hist.set(t.name, hh);
+
+  /* CPU */
+  r.cpuPct.textContent = m.cpuPct.toFixed(0) + '%';
+  const ghz = m.cpuMhz ? (m.cpuMhz / 1000).toFixed(2) + ' GHz' : '';
+  const baseGhz = m.cpuMaxMhz ? (m.cpuMaxMhz / 1000).toFixed(2) + ' GHz' : '';
+  r.cpuSub.textContent = [ghz ? '速度 ' + ghz : '', baseGhz ? '基准 ' + baseGhz : '',
+    m.cpuPerf != null ? Math.round(m.cpuPerf) + '%' : ''].filter(Boolean).join(' · ')
+    || (m.cpuCores ? m.cpuCores + ' 核 / ' + m.cpuLogical + ' 线程' : '');
+  r.cpuNote.textContent = m.cpuName + (m.cpuLogical ? ' · ' + m.cpuLogical + ' 逻辑处理器' : '');
+  push('cpu', hh, 'cpu', m.cpuPct);
+  drawSeries(r.cpuSpark, [{ data: hh.cpu, stroke: 'var(--cpu)', fill: 'rgba(76,194,255,.35)' }], { max: 100 });
+
+  /* 每核心 */
+  if (h.coreCount !== m.cores.length){
+    h.coreCount = m.cores.length;
+    h.coreCanvases = [];
+    r.cores.innerHTML = '';
+    m.cores.forEach((c, i) => {
+      const d = document.createElement('div'); d.className = 'core';
+      const cv = document.createElement('canvas');
+      const sp = document.createElement('span');
+      sp.textContent = 'CPU ' + (i + 1);
+      d.appendChild(cv); d.appendChild(sp); r.cores.appendChild(d);
+      h.coreCanvases.push(cv);
+    });
+    hh.cores = {};
+  }
+  m.cores.forEach((c, i) => {
+    const key = 'c' + i;
+    push(key, hh.cores, key, c.v);
+    const cv = h.coreCanvases[i];
+    if (cv) drawSeries(cv, [{ data: hh.cores[key], stroke: 'var(--cpu)', fill: 'rgba(76,194,255,.30)' }], { max: 100 });
+  });
+
+  /* 内存 */
+  r.memPct.textContent = m.memPct != null ? m.memPct.toFixed(0) + '%' : '–';
+  r.memSub.textContent = (m.memUsedBytes != null && m.ramTotalBytes)
+    ? fmtBytes(m.memUsedBytes) + ' / ' + fmtBytes(m.ramTotalBytes)
+      + ' · 可用 ' + fmtBytes(m.memAvailBytes)
+      + (m.memCommittedBytes != null ? ' · 已提交 ' + fmtBytes(m.memCommittedBytes) : '')
+    : '无内存数据';
+  r.memBarIn.style.width = (m.memPct || 0) + '%';
+  r.memNote.textContent = m.memCacheBytes != null ? '缓存 ' + fmtBytes(m.memCacheBytes) : '';
+  push('mem', hh, 'mem', m.memPct || 0);
+  drawSeries(r.memSpark, [{ data: hh.mem, stroke: 'var(--mem)', fill: 'rgba(185,140,255,.35)' }], { max: 100 });
+
+  if (m.volumes.length){
+    r.vols.innerHTML = m.volumes.map(v => {
+      const pct = v.sizeBytes ? (v.sizeBytes - v.freeBytes) / v.sizeBytes * 100 : 0;
+      return '<div class="vol"><div class="vt"><span>' + v.drive + '</span><span>'
+        + fmtBytes(v.freeBytes) + ' 可用 / ' + fmtBytes(v.sizeBytes) + '</span></div>'
+        + '<div class="bar"><div class="bar-in" style="width:' + pct.toFixed(1) + '%"></div></div></div>';
+    }).join('');
+  }
+
+  /* 磁盘 */
+  r.diskPct.textContent = m.diskActive.toFixed(0) + '%';
+  r.diskSub.textContent = '读 ' + fmtBps(m.diskReadBps) + ' · 写 ' + fmtBps(m.diskWriteBps)
+    + (m.diskQueue != null ? ' · 队列 ' + m.diskQueue.toFixed(2) : '');
+  r.diskNote.textContent = '活动时间 / 读写吞吐';
+  push('diskR', hh, 'diskR', m.diskReadBps || 0);
+  push('diskW', hh, 'diskW', m.diskWriteBps || 0);
+  drawSeries(r.diskSpark, [
+    { data: hh.diskR, stroke: 'var(--disk)', fill: 'rgba(99,209,122,.28)' },
+    { data: hh.diskW, stroke: 'var(--gpu)',  fill: 'rgba(255,179,71,.18)' }
+  ], {});
+
+  /* 网络 */
+  r.netRate.textContent = fmtMbps((m.netRxBps || 0) + (m.netTxBps || 0));
+  r.netSub.textContent = '↓ ' + fmtMbps(m.netRxBps) + ' · ↑ ' + fmtMbps(m.netTxBps)
+    + (m.netAdapter ? ' · ' + m.netAdapter : '');
+  push('netR', hh, 'netR', m.netRxBps || 0);
+  push('netT', hh, 'netT', m.netTxBps || 0);
+  drawSeries(r.netSpark, [
+    { data: hh.netR, stroke: 'var(--net)', fill: 'rgba(76,194,255,.28)' },
+    { data: hh.netT, stroke: 'var(--mem)', fill: 'rgba(185,140,255,.18)' }
+  ], {});
+
+  /* GPU */
+  r.gpuPct.textContent = m.hasGpu ? m.gpuPct.toFixed(0) + '%' : '–';
+  const sn = m.sensors;
+  r.gpuSub.textContent = m.gpuNames.length ? m.gpuNames.join(' / ') : (m.hasGpu ? '' : '没有 GPU 计数器');
+  r.gpuNote.textContent = sn.source ? '传感器: ' + sn.source : '无温度/功耗传感器';
+  push('gpu', hh, 'gpu', m.hasGpu ? m.gpuPct : 0);
+  drawSeries(r.gpuSpark, [{ data: hh.gpu, stroke: 'var(--gpu)', fill: 'rgba(255,179,71,.32)' }], { max: 100 });
+
+  const entries = Object.entries(m.engines).sort((a, b) => b[1] - a[1]);
+  for (const [type, val] of entries){
+    let row = h.engineRows.get(type);
+    if (!row){
+      const d = document.createElement('div'); d.className = 'engine';
+      d.innerHTML = '<span class="name"></span><span class="track"><span class="fill"></span></span><span class="val"></span>';
+      r.engines.appendChild(d);
+      row = { name: d.querySelector('.name'), fill: d.querySelector('.fill'), val: d.querySelector('.val') };
+      h.engineRows.set(type, row);
+    }
+    row.name.textContent = ENGINE_LABEL[type] || type;
+    row.fill.style.width = Math.min(100, val) + '%';
+    row.val.textContent = val.toFixed(0) + '%';
+  }
+  if (!entries.length) r.engines.innerHTML = '<div class="hint">无 GPU 引擎计数器</div>';
+
+  if (m.vramTotalBytes){
+    const pct = m.vramUsedBytes != null ? m.vramUsedBytes / m.vramTotalBytes * 100 : 0;
+    r.vramBarIn.style.width = Math.min(100, pct) + '%';
+    r.vramBarIn.style.background = 'var(--gpu)';
+    r.vramSub.textContent = '显存 ' + fmtBytes(m.vramUsedBytes) + ' / ' + fmtBytes(m.vramTotalBytes)
+      + (m.vramSharedBytes ? ' · 共享 ' + fmtBytes(m.vramSharedBytes) : '');
+  } else {
+    r.vramBarIn.style.width = '0%';
+    r.vramSub.textContent = m.vramUsedBytes != null ? '显存 已用 ' + fmtBytes(m.vramUsedBytes) : '';
+  }
+
+  const chips = [];
+  if (sn.temp != null) chips.push('温度 <b>' + sn.temp.toFixed(0) + ' °C</b>');
+  if (sn.power != null) chips.push('功耗 <b>' + sn.power.toFixed(0) + ' W</b>'
+    + (sn.powerLimit ? ' / ' + sn.powerLimit.toFixed(0) + ' W' : ''));
+  if (sn.fan != null) chips.push('风扇 <b>' + sn.fan.toFixed(0) + ' %</b>');
+  if (sn.clock != null) chips.push('频率 <b>' + sn.clock.toFixed(0) + ' MHz</b>');
+  if (sn.extra && sn.extra.length > 1){
+    sn.extra.forEach((g, i) => chips.push('GPU' + i + ' <b>' + (g.util != null ? g.util.toFixed(0) + '%' : '?') + '</b>'
+      + (g.temp != null ? ' ' + g.temp.toFixed(0) + '°C' : '')));
+  }
+  r.gpuChips.innerHTML = chips.map(c => '<span class="chip">' + c + '</span>').join('')
+    || '<span class="hint">装 nvidia-smi 或运行 LibreHardwareMonitor 可显示温度/功耗/风扇</span>';
+}
+
+/* ---------- 轮询 ---------- */
+async function tick(){
+  const status = document.getElementById('status');
+  try {
+    const res = await fetch('data.json?ts=' + Date.now(), { cache: 'no-store' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const payload = await res.json();
+    lastOkAt = Date.now();
+    ensureHosts(payload.targets || []);
+    const fresh = payload.generated !== lastGenerated;
+    lastGenerated = payload.generated;
+    for (const t of (payload.targets || [])) updateHost(t);
+    const okCount = (payload.targets || []).filter(t => t.ok).length;
+    const all = (payload.targets || []).length;
+    status.className = 'status' + (okCount === all ? '' : ' bad');
+    status.textContent = '采集 ' + payload.collectMs + 'ms · 间隔 ' + payload.intervalSec + 's · '
+      + okCount + '/' + all + ' 正常' + (fresh ? ' · ' + agoText() : '');
+  } catch (err){
+    status.className = 'status bad';
+    status.textContent = '读取 data.json 失败：' + err.message + '（采集端是否在运行？）';
+  }
+}
+tick();
+setInterval(tick, 1000);
+setInterval(() => {
+  if (!lastOkAt) return;
+  const s = document.getElementById('status');
+  s.textContent = s.textContent.replace(/·\s*(刚刚更新|\d+ 秒前更新)/, '· ' + agoText());
+}, 1000);
+window.addEventListener('resize', () => { for (const t of hist.keys()){ /* 重绘由下次轮询完成 */ } });
+</script>
+</body>
+</html>

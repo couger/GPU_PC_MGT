@@ -1,0 +1,87 @@
+# GPU_PC_MGT
+
+Windows 桌面性能监控工具，支持本机、局域网常驻探针和 SSH 采集。采用 WinForms 与系统自带的 .NET Framework，界面无需浏览器。
+
+## 功能
+
+- CPU、逻辑处理器、内存、磁盘、网络、GPU、显存和可获取的温度指标。
+- 主界面图表、托盘悬停详情、关闭到托盘，以及可置顶、贴边收起的精简小部件。
+- 远端探针配置、访问地址限制、随机凭据生成和复制粘贴，以及 SSH 服务状态显示。
+- 连接异常时保留故障前最多 5 分钟的采样，提供表格和折线图。记录仅在内存中保留，最多 10 条、24 小时，退出即清除。
+- 启动、退出、异常、托盘和采样状态日志；忙闲自适应采样。
+
+温度、风扇及功耗是否可获取取决于设备和驱动。连接异常不能单独证明设备过热或重启。
+
+## 构建与启动
+
+需要 Windows x64、系统自带的 .NET Framework 4.x，以及 SSH 通道所需的 OpenSSH 客户端。无需 NuGet 安装。
+
+```bat
+build.cmd
+start-exe.cmd
+```
+
+首次通过启动脚本运行会将 `config.example.json` 复制为本地 `config.json`，默认只启用本机。已有配置不会被覆盖。也可手动复制示例，再从界面添加设备。
+
+构建产生 `GPUPCMonitor.exe`、`gpm-remote.exe`、`gpm-probe-tray.exe` 与 `ssh-askpass.exe`。编译产物不提交到仓库。构建脚本为桌面程序设置 Medium 完整性标签，避免低完整性进程无法注册 Explorer 托盘图标。
+
+## 连接远端
+
+建议优先使用可信局域网中的常驻探针。将构建后的 `gpm-remote.exe` 与 `gpm-probe-tray.exe` 放到目标电脑。首次初始化共享配置时，需要对系统配置目录有写入权限：
+
+```bat
+gpm-remote.exe --init-config
+gpm-remote.exe --serve-config "C:\ProgramData\GPUPCMGT\probe-config.json"
+```
+
+启动 `gpm-probe-tray.exe`，在托盘的探针设置中填写连接地址、端口和允许访问的监控端。默认端口 9187，空允许列表只接受本机。按需要添加只允许监控端访问的防火墙入站规则。
+
+在探针设置中复制连接凭据，再到监控主界面的设置中粘贴、测试并保存。令牌由探针随机生成；重新生成后需更新所有监控端。探针端口、允许列表及采样间隔支持热更新。
+
+常驻运行可用 Windows 任务计划程序分别配置采集任务与登录用户托盘任务。托盘需要运行在用户桌面会话中，关闭探针状态图标不会停止独立采集进程。`tools/install-probe-tray.ps1` 和 `tools/upgrade-probe-config.ps1` 是针对已有 `GPUPCMGT-Probe` 任务的安装／迁移辅助脚本，不是全新安装向导。
+
+SSH 通道需先启用目标电脑的 OpenSSH Server、配置有效账号／密钥与相应入站规则。界面可配置 SSH 目标；SSH 采集会在远端的 `C:\ProgramData\GPUPCMGT` 部署采集器。软件不会因为显示 SSH 状态而自动开启该服务。
+
+示例配置使用文档专用地址 `192.0.2.10`，不能作为实际目标连接。
+
+## 查看记录与排查
+
+主窗口或托盘菜单的“故障记录”可查看冻结的短时读数。持续不可达不会重复生成记录，恢复后再次连接异常会生成新记录。刚启动时不足 5 分钟，只保留已有采样。
+
+默认日志目录为本地配置的 `dataDir`：
+
+| 文件 | 内容 |
+| --- | --- |
+| `runtime.log` | 进程、异常堆栈、会话／电源事件、退出与每 30 秒的采样状态和读数年龄 |
+| `ui.log` | 托盘注册、窗口关闭和设置行为 |
+| `startup-error.txt` | 启动失败信息 |
+| `ssh-error.txt` | 远端采集连接与解析失败信息（包括探针通道） |
+
+`runtime.log` 达到约 2 MB 时轮换一次。日志可能包含设备名称、地址和诊断输出，分享前需要脱敏。强制终止或断电不保证产生退出记录。
+
+## 测试
+
+在 Windows 桌面会话中运行：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\run-tests.ps1
+```
+
+脚本运行短时故障记录、模拟探针断连、凭据与允许列表、运行日志及小部件测试，不使用实际远端连接配置。测试输出保存在忽略的 `.tmp` 目录。其他 UI 与协议检查工具位于 `tools`。
+
+## 提交前检查
+
+实际配置、DPAPI 加密数据、SSH 文件、运行数据、截图和编译产物通过 `.gitignore` 排除。提交前检查 Git 暂存内容：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\check-secrets.ps1
+```
+
+详见 [SECURITY.md](SECURITY.md)。
+
+## 代码目录
+
+- `src`：监控界面、托盘、小部件、采样器、探针及故障记录。
+- `assets`：监控端／探针的正常与告警图标。
+- `tools`：测试、诊断和已有探针任务的迁移工具。
+- `web`、`start-dashboard.cmd`：早期网页界面的兼容源码；运行数据不随仓库提供。当前主入口为桌面程序。

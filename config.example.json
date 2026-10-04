@@ -1,0 +1,29 @@
+{
+  "dataDir": "data",
+  "closeToTray": 1,
+  "targets": [
+    { "name": "本机", "kind": "local", "enabled": true, "intervalSec": 1 },
+    {
+      "name": "示例远端设备",
+      "kind": "probe",
+      "host": "192.0.2.10",
+      "port": 9187,
+      "token": "",
+      "enabled": false,
+      "intervalSec": 2,
+      "idleIntervalSec": 10
+    },
+    {
+      "name": "示例 SSH 设备",
+      "kind": "ssh",
+      "host": "192.0.2.10",
+      "port": 22,
+      "user": "monitoruser",
+      "keyFile": "",
+      "knownHosts": "ssh/known_hosts",
+      "enabled": false,
+      "intervalSec": 3,
+      "idleIntervalSec": 15
+    }
+  ]
+}
