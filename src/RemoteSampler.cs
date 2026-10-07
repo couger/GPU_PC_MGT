@@ -32,6 +32,9 @@ namespace Gpm
         string _lastOut = "", _lastErr = "", _lastCmd = "";
         int _lastExit = -1;
         public string LastDiag = "";
+        string _diagnosticError="";
+        DateTime _lastDiagnosticUtc=DateTime.MinValue;
+        bool? _connectionOk;
 
         public RemoteSampler(Target t)
         {
@@ -254,7 +257,7 @@ namespace Gpm
         {
             Snapshot s = new Snapshot();
             s.Name = _t.Name;
-            s.Channel = "ssh";
+            s.Channel = _t.Kind=="probe"?"probe":"ssh";
             s.Host = _t.Host;
             Stopwatch sw = Stopwatch.StartNew();
             try
@@ -351,6 +354,8 @@ namespace Gpm
                 s.Error = ex.Message;
                 try
                 {
+                    if(_diagnosticError!=s.Error||DateTime.UtcNow-_lastDiagnosticUtc>TimeSpan.FromMinutes(30))
+                    {
                     StringBuilder dbg = new StringBuilder();
                     dbg.AppendLine(DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + "  " + _t.Name + " (" + _t.Host + ")");
                     dbg.AppendLine("cmd: ssh " + _lastCmd);
@@ -360,13 +365,17 @@ namespace Gpm
                     dbg.AppendLine(_lastOut.Length > 4000 ? _lastOut.Substring(0, 4000) : _lastOut);
                     dbg.AppendLine("--- stderr (" + _lastErr.Length + " chars) ---");
                     dbg.AppendLine(_lastErr.Length > 4000 ? _lastErr.Substring(0, 4000) : _lastErr);
-                    File.WriteAllText(Path.Combine(Config.DataDir, "ssh-error.txt"), dbg.ToString(), new UTF8Encoding(false));
+                    LocalFiles.WriteDiagnostic(Path.Combine(Config.DataDir, "ssh-error.txt"), dbg.ToString());
+                    _diagnosticError=s.Error;_lastDiagnosticUtc=DateTime.UtcNow;
+                    }
                 }
                 catch { }
             }
             sw.Stop();
             s.CollectMs = (int)sw.ElapsedMilliseconds;
             s.At = DateTime.Now;
+            if(_connectionOk!=s.Ok){Program.RuntimeLog("connection "+_t.Name+" host="+_t.Host+" channel="+s.Channel+" ok="+s.Ok+(s.Ok?"":" error="+s.Error));_connectionOk=s.Ok;}
+            if(s.Ok)_diagnosticError="";
             return s;
         }
 
@@ -379,7 +388,9 @@ namespace Gpm
             {
                 c.ReceiveTimeout = 5000;
                 c.SendTimeout = 5000;
-                c.Connect(_t.Host, _t.Port);
+                _lastOut="";_lastErr="";_lastCmd="";
+                var pending=c.BeginConnect(_t.Host,_t.Port,null,null);
+                using(var wait=pending.AsyncWaitHandle){if(!wait.WaitOne(5000))throw new TimeoutException("探针连接超时（5 秒）");c.EndConnect(pending);}
                 using (System.Net.Sockets.NetworkStream ns = c.GetStream())
                 {
                     ns.ReadTimeout = 5000;
@@ -388,8 +399,19 @@ namespace Gpm
                     ns.Write(b, 0, b.Length);
                     ns.Flush();
                     byte[] buf = new byte[16384];
-                    int n = ns.Read(buf, 0, buf.Length);
-                    string s = Encoding.UTF8.GetString(buf, 0, n);
+                    string s;
+                    var deadline=Stopwatch.StartNew();
+                    using(var payload=new MemoryStream())
+                    {
+                        while(true)
+                        {
+                            int remaining=5000-(int)deadline.ElapsedMilliseconds;if(remaining<=0)throw new TimeoutException("探针响应超时（5 秒）");ns.ReadTimeout=remaining;
+                            int n=ns.Read(buf,0,buf.Length);if(n==0)break;
+                            int newline=Array.IndexOf(buf,(byte)10,0,n);int count=newline>=0?newline+1:n;
+                            if(payload.Length+count>65536)throw new IOException("探针响应超过大小限制");payload.Write(buf,0,count);if(newline>=0)break;
+                        }
+                        s=Encoding.UTF8.GetString(payload.ToArray());
+                    }
                     _lastOut = s; _lastErr = ""; _lastExit = 0;
                     return s;
                 }

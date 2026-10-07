@@ -42,9 +42,6 @@ namespace Gpm
 
         [DllImport("shell32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
         static extern bool Shell_NotifyIcon(int message, ref NOTIFYICONDATA data);
-        [StructLayout(LayoutKind.Sequential)]struct IconIdentifier { public int Size;public IntPtr Window;public int Id;public Guid Guid; }
-        [StructLayout(LayoutKind.Sequential)]struct IconRect { public int Left,Top,Right,Bottom; }
-        [DllImport("shell32.dll")]static extern int Shell_NotifyIconGetRect(ref IconIdentifier identifier,out IconRect rect);
 
         [DllImport("user32.dll", CharSet = CharSet.Unicode)]
         static extern int RegisterWindowMessage(string message);
@@ -67,14 +64,13 @@ namespace Gpm
         Icon _icon;
         readonly Icon _normalIcon;
         readonly Icon _warningIcon;
-        readonly TrayFlyout _flyout = new TrayFlyout();
-        readonly bool _richTooltip;
         string _tip = "";
         bool _added;
         bool _v4;
         bool _disposed;
         IntPtr _registeredWindow;
         DateTime _lastAttempt = DateTime.MinValue;
+        DateTime _lastTipUpdate = DateTime.MinValue;
 
         public event EventHandler Clicked;        // 左键单击/双击
         public event EventHandler MenuRequested;  // 右键
@@ -90,8 +86,7 @@ namespace Gpm
             _normalIcon = AppIcons.Load(iconName, SystemInformation.SmallIconSize);
             _warningIcon = AppIcons.Load(iconName + "-warning", SystemInformation.SmallIconSize);
             _icon = _normalIcon;
-            _richTooltip = true;
-            _flyout.SetText(_tip);
+            UiLog.W("tray tooltip mode=Windows standard (NIF_SHOWTIP)");
             _hook.Owner = this;
             _hook.AssignHandle(form.Handle);
             form.HandleCreated += HandleCreated;
@@ -133,7 +128,7 @@ namespace Gpm
             _lastAttempt = DateTime.UtcNow;
             _v4 = false;
             NOTIFYICONDATA d = New();
-            d.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
+            d.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP | NIF_SHOWTIP;
             d.uCallbackMessage = WM_TRAY;
             d.hIcon = _icon.Handle;
             d.szTip = Trim(_tip, 127);
@@ -147,7 +142,8 @@ namespace Gpm
             v.uVersion = NOTIFYICON_VERSION_4;
             _v4 = Shell_NotifyIcon(NIM_SETVERSION, ref v);
             UiLog.W("tray NIM_SETVERSION(v4) ok=" + _v4);
-            if (!_v4) { d.uFlags = NIF_TIP | NIF_SHOWTIP; Shell_NotifyIcon(NIM_MODIFY, ref d); }
+            d.uFlags = NIF_TIP | NIF_SHOWTIP;
+            Shell_NotifyIcon(NIM_MODIFY, ref d);
         }
 
         public void SetWarning(bool warning)
@@ -160,7 +156,8 @@ namespace Gpm
             Shell_NotifyIcon(NIM_MODIFY,ref d);
         }
 
-        public void HideFlyout() { _flyout.Hide(); }
+        // Shell owns standard tooltip visibility; retained for existing menu callers.
+        public void HideFlyout() { }
 
         /// <summary>更新悬停提示（只在文本变化时通知外壳）</summary>
         public void Update(string tip)
@@ -169,12 +166,15 @@ namespace Gpm
             if (!_added && (DateTime.UtcNow - _lastAttempt).TotalSeconds >= 5) Add();
             string t = tip ?? "";
             if (t == _tip) return;
+            // Frequent Shell tooltip replacements can reset its hover delay.
+            // Keep metrics current without replacing the tooltip every UI tick.
+            if(_added&&(DateTime.UtcNow-_lastTipUpdate).TotalSeconds<5)return;
             _tip = t;
-            _flyout.SetText(t);
             if (!_added) return;
             NOTIFYICONDATA d = New();
-            d.uFlags = NIF_TIP | (_v4 && _richTooltip ? 0 : NIF_SHOWTIP);
+            d.uFlags = NIF_TIP | NIF_SHOWTIP;
             d.szTip = Trim(t,127);
+            _lastTipUpdate=DateTime.UtcNow;
             if (!Shell_NotifyIcon(NIM_MODIFY, ref d))
             {
                 UiLog.W("tray NIM_MODIFY(tip) failed lastErrorHint=" + Marshal.GetLastWin32Error());
@@ -214,18 +214,6 @@ namespace Gpm
             if (_v4) evt = (int)(lp & 0xFFFF);       // v4: lParam 低 16 位是事件，wParam 是坐标
             else evt = (int)lp;                      // 旧版：wParam 是图标 ID，lParam 是事件
 
-            if (evt == 0x0406 && _richTooltip)
-            {
-                // Query the actual icon. Callback coordinates can be zero or use a
-                // different DPI coordinate space; they must not anchor a card at (0,0).
-                IconIdentifier id=new IconIdentifier{Size=Marshal.SizeOf(typeof(IconIdentifier)),Window=_registeredWindow,Id=1};IconRect rect;
-                if(Shell_NotifyIconGetRect(ref id,out rect)==0&&rect.Right>rect.Left&&rect.Bottom>rect.Top)
-                    _flyout.ShowAtIcon(_flyout.ToLogical(Rectangle.FromLTRB(rect.Left,rect.Top,rect.Right,rect.Bottom)));
-                else _flyout.ShowNear(Cursor.Position);
-                return;
-            }
-            if (evt == 0x0407) { HideFlyout(); return; }
-
             if (evt == 0x0202 || evt == 0x0203 || evt == 0x0400 || evt == 0x0401 || evt == 0x0405)
             {
                 HideFlyout();
@@ -263,7 +251,6 @@ namespace Gpm
             _form.VisibleChanged -= FormVisibleChanged;
             try { if (_form != null && _form.IsHandleCreated) _hook.ReleaseHandle(); }
             catch { }
-            _flyout.Dispose();
             _normalIcon.Dispose();
             _warningIcon.Dispose();
         }

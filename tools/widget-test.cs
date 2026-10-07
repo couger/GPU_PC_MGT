@@ -27,6 +27,11 @@ class WidgetTest
             Check(!form.ShowInTaskbar&&form.TopMost,"tool widget hidden from taskbar and topmost");
             Check(form.Left==area.Right-WidgetGeometry.Tab,"right edge hides to visible tab");
             using(var graphics=form.CreateGraphics())Check(form.Region!=null&&form.Region.GetBounds(graphics).Width==WidgetGeometry.Tab,"hidden body clipped away from adjacent monitor");
+            type.GetMethod("ShowAlert").Invoke(form,new object[]{target,"模拟高温提示"});Pump(700);
+            Check(form.Left==area.Right-form.Width&&prefs.AutoHide,"alert slides out without changing auto-hide preference");
+            using(var alertImage=new Bitmap(form.Width,form.Height)){form.DrawToBitmap(alertImage,new Rectangle(Point.Empty,alertImage.Size));alertImage.Save(Path.Combine(args[0],".tmp","widget-alert-preview.png"),ImageFormat.Png);}
+            type.GetField("_alertUntil",BindingFlags.Instance|BindingFlags.NonPublic).SetValue(form,DateTime.UtcNow.AddSeconds(-1));Pump(900);
+            Check(form.Left==area.Right-WidgetGeometry.Tab,"alert automatically retracts after expiry");
             Cursor.Position=new Point(area.Right-6,form.Top+80);Pump(700);Check(form.Left==area.Right-form.Width,"touching tab slides out");
             using(var other=new Form{FormBorderStyle=FormBorderStyle.None,ShowInTaskbar=false,StartPosition=FormStartPosition.Manual,Bounds=form.Bounds})
             {

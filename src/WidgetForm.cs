@@ -43,6 +43,13 @@ namespace Gpm
         bool _dragging,_menu;
         Point _dragCursor,_dragLocation;
         DateTime _outside=DateTime.UtcNow,_lastPaint=DateTime.MinValue;
+        DateTime _alertUntil=DateTime.MinValue;
+        string _alertText="";
+        Target _alertTarget;
+        public void ShowAlert(Target target,string message)
+        {
+            _alertTarget=target;_alertText=message;_alertUntil=DateTime.UtcNow.AddSeconds(8);Invalidate();
+        }
         public WidgetForm(Func<List<Target>> targets,Action restore,WidgetPreferences prefs,string path)
         {
             _targets=targets;_restore=restore;_prefs=prefs;_path=path;
@@ -80,13 +87,14 @@ namespace Gpm
             if(DateTime.UtcNow-_lastPaint>TimeSpan.FromMilliseconds(500)){Invalidate();_lastPaint=DateTime.UtcNow;}
             if(_dragging||_menu||!Docked)return;
             bool inside=Bounds.Contains(Cursor.Position)&&_area.Contains(Cursor.Position);if(inside)_outside=DateTime.UtcNow;
-            bool hidden=_prefs.AutoHide&&!inside&&DateTime.UtcNow-_outside>TimeSpan.FromMilliseconds(600);
+            bool hidden=_prefs.AutoHide&&!inside&&DateTime.UtcNow-_outside>TimeSpan.FromMilliseconds(600)&&DateTime.UtcNow>=_alertUntil;
             int goal=WidgetGeometry.EdgeX(_area,Width,_prefs.Edge,hidden),delta=goal-Left;
             if(delta!=0){Left+=Math.Sign(delta)*Math.Min(Math.Abs(delta),Math.Max(1,(int)Math.Ceiling(Math.Abs(delta)*0.24)));ClipToScreen();}
             int top=WidgetGeometry.ClampY(_area,Height,Top);if(Top!=top)Top=top;
         }
         Target Selected()
         {
+            if(DateTime.UtcNow<_alertUntil&&_alertTarget!=null)return _alertTarget;
             var list=_targets();foreach(var t in list)if(t.Name==_prefs.TargetName)return t;return list.Count>0?list[0]:null;
         }
         static string Value(double value,string unit){return Double.IsNaN(value)||Double.IsInfinity(value)?"—":value.ToString("0")+unit;}
@@ -117,6 +125,11 @@ namespace Gpm
             {
                 int x=17+i*94;TextAt(g,labels[i],_small,colors[i],new Rectangle(x,43,90,18));TextAt(g,values[i],_number,Theme.Fg,new Rectangle(x,61,90,35));
                 if(ok){double value=i==0?s.CpuPct:i==1?s.MemPct:s.HasGpu?s.GpuPct:0;using(var brush=new SolidBrush(colors[i]))g.FillRectangle(brush,x,99,(int)(80*Math.Min(100,Math.Max(0,value))/100),3);}
+            }
+            if(DateTime.UtcNow<_alertUntil)
+            {
+                TextRenderer.DrawText(g,"提醒 · "+_alertText,_small,new Rectangle(17,112,275,46),Theme.Warn,TextFormatFlags.WordBreak|TextFormatFlags.EndEllipsis);
+                return;
             }
             TextAt(g,ok?"↓ "+Rate(s.NetRxBps)+"    ↑ "+Rate(s.NetTxBps):s==null?"正在等待采样…":"连接异常 · 暂无有效指标",_small,ok?Theme.Fg2:Theme.Bad,new Rectangle(17,114,203,20));
             TextAt(g,ok?Value(s.GpuTempC,"°C"):"—",_small,Theme.Temp,new Rectangle(228,114,65,20));

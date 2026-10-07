@@ -27,13 +27,7 @@ namespace Gpm
                 {
                     string dir = String.IsNullOrEmpty(Config.DataDir) ? Config.Dir : Config.DataDir;
                     string path = Path.Combine(dir, "runtime.log");
-                    if (File.Exists(path) && new FileInfo(path).Length > 2097152)
-                    {
-                        string old = path + ".1";
-                        if (File.Exists(old)) File.Delete(old);
-                        File.Move(path, old);
-                    }
-                    File.AppendAllText(path, DateTimeOffset.Now.ToString("o") + " pid=" + _processId + " " + message + Environment.NewLine, new UTF8Encoding(false));
+                    LocalFiles.Append(path, DateTimeOffset.Now.ToString("o") + " pid=" + _processId + " " + message + Environment.NewLine,262144);
                 }
             }
             catch { }
@@ -47,6 +41,7 @@ namespace Gpm
         }
         static void StartDiagnostics()
         {
+            LocalFiles.Cleanup(Config.DataDir,DateTime.UtcNow);if(Config.Dir!=Config.DataDir)LocalFiles.Cleanup(Config.Dir,DateTime.UtcNow);
             using (Process process = Process.GetCurrentProcess())
             {
                 _processId = process.Id;
@@ -74,8 +69,12 @@ namespace Gpm
             Microsoft.Win32.SystemEvents.SessionEnding += delegate(object sender, Microsoft.Win32.SessionEndingEventArgs e) { RuntimeLog("session ending reason=" + e.Reason); };
             Microsoft.Win32.SystemEvents.SessionEnded += delegate(object sender, Microsoft.Win32.SessionEndedEventArgs e) { RuntimeLog("session ended reason=" + e.Reason); };
             Microsoft.Win32.SystemEvents.PowerModeChanged += delegate(object sender, Microsoft.Win32.PowerModeChangedEventArgs e) { RuntimeLog("power mode=" + e.Mode); };
+            DateTime lastHeartbeat=DateTime.MinValue,lastCleanup=DateTime.UtcNow;
             _heartbeat = new System.Threading.Timer(delegate
             {
+                if(DateTime.UtcNow-lastCleanup>TimeSpan.FromHours(1)){LocalFiles.Cleanup(Config.DataDir,DateTime.UtcNow);if(Config.Dir!=Config.DataDir)LocalFiles.Cleanup(Config.Dir,DateTime.UtcNow);lastCleanup=DateTime.UtcNow;}
+                if(DateTime.UtcNow-lastHeartbeat<TimeSpan.FromMinutes(5))return;
+                lastHeartbeat=DateTime.UtcNow;
                 RuntimeLog("alive");
                 var targets = _samplingTargets;
                 if (targets == null) return;
@@ -103,7 +102,7 @@ namespace Gpm
             }
             finally
             {
-                RuntimeLog("main returned");
+                if(_processId!=0)RuntimeLog("main returned");
                 if (_heartbeat != null) _heartbeat.Dispose();
                 if (_instance != null) { _instance.ReleaseMutex(); _instance.Dispose(); }
             }
@@ -116,7 +115,7 @@ namespace Gpm
             try
             {
                 string p = Path.Combine(Config.DataDir, "startup-error.txt");
-                File.WriteAllText(p, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + "\r\n" + ex.ToString(), new UTF8Encoding(false));
+                LocalFiles.WriteDiagnostic(p, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + "\r\n" + ex.ToString());
             }
             catch { }
             if (Quiet) return;   // 报告/截图模式下绝不弹窗，否则会挂在无人点击的对话框上

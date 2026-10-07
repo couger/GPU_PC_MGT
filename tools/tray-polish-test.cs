@@ -28,12 +28,10 @@ class TrayPolishTest
                 {
                     string text=(string)main.GetMethod("TrayText",flags).Invoke(form,null);
                     Check(text.Contains("\n")&&text.Contains("GB")&&text.Contains("°C")&&text.Length>63,"multiline metrics retain units and full content");
+                    Check(text.Length<=127,"key metrics fit the standard Shell tooltip without truncation");
+                    Check(a.GetType("Gpm.TooltipHost")==null,"application creates no tooltip window");
                     trayType.GetMethod("Update").Invoke(tray,new object[]{text});
-                    Form card=(Form)trayType.GetField("_flyout",flags).GetValue(tray);
-                    Check(!card.ShowInTaskbar,"hover card has no taskbar button");
-                    CreateParams cp=(CreateParams)card.GetType().GetProperty("CreateParams",flags).GetValue(card,null);
-                    Check((cp.ExStyle&0x80)!=0&&(cp.ExStyle&0x08000000)!=0,"hover card is a non-activating tool window");
-                    using(Bitmap image=new Bitmap(card.Width,card.Height)){card.DrawToBitmap(image,new Rectangle(0,0,card.Width,card.Height));image.Save(Path.Combine(output,"tray-card-preview.png"));}
+                    try{trayType.GetMethod("HideFlyout").Invoke(tray,null);}catch(Exception hideEx){throw new Exception("HideFlyout must remain callable for menu paths: "+hideEx.Message);}
                     int clicked=0;trayType.GetField("Clicked",flags).SetValue(tray,new EventHandler(delegate{clicked++;}));trayType.GetField("_v4",flags).SetValue(tray,true);
                     Message notification=Message.Create(form.Handle,0x8001,IntPtr.Zero,new IntPtr((1<<16)|0x402));trayType.GetMethod("OnMessage").Invoke(tray,new object[]{notification});Check(clicked==0,"balloon appearance never restores main window");
                     notification=Message.Create(form.Handle,0x8001,IntPtr.Zero,new IntPtr((1<<16)|0x405));trayType.GetMethod("OnMessage").Invoke(tray,new object[]{notification});Check(clicked==1,"balloon click restores main window");

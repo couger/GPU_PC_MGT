@@ -413,7 +413,9 @@ namespace Gpm
         Label _overviewCount;
         Button _historyButton;
         FaultHistoryForm _historyForm;
-        long _lastFaultNotice;
+        readonly AlertMonitor _alerts=new AlertMonitor();
+        readonly List<AlertNotice> _alertQueue=new List<AlertNotice>();
+        DateTime _nextAlert=DateTime.MinValue;
         readonly Font _dashboardTitleFont=new Font("Microsoft YaHei UI",17,FontStyle.Bold);
         readonly Font _dashboardBodyFont=new Font("Microsoft YaHei UI",9);
         TrayIcon _tray;
@@ -673,7 +675,7 @@ namespace Gpm
             Activate();
         }
 
-        /// <summary>完整分行指标供悬停卡片使用；系统兼容提示单独截断。</summary>
+        /// <summary>分行关键指标供 Windows 标准托盘提示使用（最多 127 字符）。</summary>
         string TrayText()
         {
             StringBuilder b = new StringBuilder();
@@ -681,15 +683,16 @@ namespace Gpm
             {
                 Snapshot s = t.Latest;
                 if (b.Length > 0) b.Append("\n\n");
-                b.Append(t.Name).Append("  ·  ").Append(s == null ? "采集中" : s.Ok ? "在线" : "连接异常").Append('\n');
+                string name=t.Name??"设备";if(name.Length>20)name=name.Substring(0,19)+"…";
+                b.Append(name).Append(" · ").Append(s == null ? "采集中" : s.Ok ? "在线" : "连接异常").Append('\n');
                 if (s == null) { b.Append("  正在等待首次采样…"); continue; }
                 if (!s.Ok) { b.Append("  暂无有效指标，请查看主窗口\n  最近检查 ").Append(s.At.ToString("HH:mm:ss")); continue; }
-                b.Append("  CPU    ").Append(s.CpuPct.ToString("0.0")).Append("%\n");
-                b.Append("  内存    ").Append(s.MemPct.ToString("0.0")).Append("%  ·  ").Append((s.MemUsedBytes/1073741824.0).ToString("0.0")).Append(" / ").Append((s.MemTotalBytes/1073741824.0).ToString("0.0")).Append(" GB\n");
-                b.Append("  GPU    ").Append(s.HasGpu ? s.GpuPct.ToString("0.0")+"%" : "未检测到");
-                if (!double.IsNaN(s.GpuTempC)) b.Append("  ·  ").Append(s.GpuTempC.ToString("0")).Append(" °C");
-                b.Append("\n  网络    ↓ ").Append(Rate(s.NetRxBps)).Append("   ↑ ").Append(Rate(s.NetTxBps));
-                b.Append("\n  更新    ").Append(s.At.ToString("HH:mm:ss"));
+                b.Append("CPU ").Append(s.CpuPct.ToString("0.0")).Append("%\n");
+                b.Append("内存 ").Append(s.MemPct.ToString("0.0")).Append("% · ").Append((s.MemUsedBytes/1073741824.0).ToString("0.0")).Append("/").Append((s.MemTotalBytes/1073741824.0).ToString("0.0")).Append(" GB\n");
+                b.Append("GPU ").Append(s.HasGpu ? s.GpuPct.ToString("0.0")+"%" : "未检测到");
+                if (!double.IsNaN(s.GpuTempC)) b.Append(" · ").Append(s.GpuTempC.ToString("0")).Append(" °C");
+                b.Append("\n网络 ↓").Append(Rate(s.NetRxBps)).Append(" ↑").Append(Rate(s.NetTxBps));
+                b.Append("\n更新 ").Append(s.At.ToString("HH:mm:ss"));
             }
             string txt = b.ToString();
             if (txt.Length == 0) txt = "GPU PC 性能监视";
@@ -708,7 +711,15 @@ namespace Gpm
         {
             var records=FaultHistory.Records();int recordCount=records.Length;
             if(_historyButton!=null){string label="故障记录 ("+recordCount+")";if(_historyButton.Text!=label){_historyButton.Text=label;_historyButton.ForeColor=recordCount>0?Theme.Warn:Theme.Fg;}}
-            if(recordCount>0&&records[0].Sequence>_lastFaultNotice){_lastFaultNotice=records[0].Sequence;if(_tray!=null)_tray.Balloon("已保留故障前数据",records[0].Name+" 连接异常。可从“故障记录”查看前 5 分钟表格和曲线，退出应用即清除。");}
+            foreach(var target in _all){var notice=_alerts.Observe(target,target.Latest,DateTime.UtcNow);if(notice!=null)_alertQueue.Add(notice);}
+            if(_alertQueue.Count>0&&DateTime.UtcNow>=_nextAlert)
+            {
+                var first=_alertQueue[0];var text=new List<string>();foreach(var notice in _alertQueue)text.Add(notice.Target.Name+"："+notice.Message);
+                string message=String.Join("\n",text.ToArray());
+                if(_tray!=null)_tray.Balloon("设备状态提醒",message);
+                if(_widget!=null&&!_widget.IsDisposed&&_widget.Visible)_widget.ShowAlert(first.Target,first.Message);
+                _alertQueue.Clear();_nextAlert=DateTime.UtcNow.AddSeconds(15);
+            }
             foreach (Target t in _targets)
             {
                 Snapshot s = t.Latest;

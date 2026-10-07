@@ -249,9 +249,7 @@ namespace Gpm
             try
             {
                 string p = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "probe.log");
-                FileInfo fi = new FileInfo(p);
-                if (fi.Exists && fi.Length > 65536) File.Delete(p);
-                File.AppendAllText(p, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + "  " + msg + "\r\n", new UTF8Encoding(false));
+                LocalFiles.Append(p, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + "  " + msg + "\r\n",65536);
             }
             catch { }
         }

@@ -117,6 +117,6 @@ namespace Gpm
     }
     static class UiLog
     {
-        public static void W(string text) { try {File.AppendAllText(Path.Combine(Config.DataDir,"probe-tray.log"),DateTime.Now.ToString("s")+" "+text+Environment.NewLine);}catch{} }
+        public static void W(string text) { LocalFiles.Append(Path.Combine(Config.DataDir,"probe-tray.log"),DateTime.Now.ToString("s")+" "+text+Environment.NewLine,65536); }
     }
 }
