@@ -19,4 +19,5 @@ foreach($name in @('fault-history-test','fault-sampler-test','runtime-log-test',
     & $exe $arg
     if($LASTEXITCODE -ne 0){throw ('Test failed: '+$name)}
 }
+& (Join-Path $PSScriptRoot 'run-probe-power-test.ps1')
 Write-Output 'PASS: all regression checks completed'

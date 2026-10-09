@@ -24,6 +24,7 @@ namespace Gpm
         static string _configPath=ProbeConfig.DefaultPath;
         static string _summary="";
         static string _pollHost="127.0.0.1";
+        static ProbePowerReminder _powerReminder;
         [STAThread]
         static int Main(string[] args)
         {
@@ -47,7 +48,10 @@ namespace Gpm
                 using(Form owner=new Form { Text="GPU PC 探针状态", ShowInTaskbar=false })
                 using(TrayIcon tray=new TrayIcon(owner,"探针状态\n  正在检查…","probe"))
                 using(System.Windows.Forms.Timer timer=new System.Windows.Forms.Timer())
+                using(var powerReader=new ProbePowerReader())
+                using(var powerReminder=new ProbePowerReminder(Path.Combine(_dir,"probe-ui.json"),powerReader.Read))
                 {
+                    _powerReminder=powerReminder;
                     tray.Clicked+=delegate { ShowMenu(owner,tray); };
                     tray.MenuRequested+=delegate { ShowMenu(owner,tray); };
                     Thread worker=new Thread(Poll);worker.IsBackground=true;worker.Start();
@@ -55,6 +59,7 @@ namespace Gpm
                     timer.Interval=1000;timer.Tick+=delegate
                     {
                         Status s=_status;tray.Update(s.Text);tray.SetWarning(s.Warning);
+                        try{powerReminder.Tick(DateTime.UtcNow);}catch(Exception ex){UiLog.W("power reminder tick: "+ex.GetType().Name);}
                         if(s.Ready && previousWarning!=s.Warning)
                         {
                             UiLog.W("probe endpoint healthy="+!s.Warning+" tray registered="+tray.Added+" desktop session="+Process.GetCurrentProcess().SessionId);
@@ -70,12 +75,13 @@ namespace Gpm
         static void ShowMenu(Form owner,TrayIcon tray)
         {
             tray.HideFlyout();
-            int command=TrayMenu.Show(owner,"探针状态："+(_status.Warning?"异常":"运行中"),"探针设置…","复制连接凭据","打开探针目录","-","退出状态图标（保留采集）");
+            int command=TrayMenu.Show(owner,"探针状态："+(_status.Warning?"异常":"运行中"),"探针设置…","复制连接凭据","打开探针目录",(_powerReminder.Enabled?"关闭":"开启")+"性能模式提醒","-","退出状态图标（保留采集）");
             try{
             if(command==2)using(var form=new ProbeSettingsForm(_configPath))form.ShowDialog();
             else if(command==3)Clipboard.SetText(ProbeConfig.Load(_configPath).Profile());
             else if(command==4)Process.Start("explorer.exe",_dir);
-            else if(command==6)Application.ExitThread();
+            else if(command==5)_powerReminder.SetEnabled(!_powerReminder.Enabled);
+            else if(command==7)Application.ExitThread();
             }catch(Exception ex){MessageBox.Show(ex.Message,"探针配置");}
         }
         static string Number(Dictionary<string,object> json,string key,string suffix)

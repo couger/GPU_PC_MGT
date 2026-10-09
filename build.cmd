@@ -46,7 +46,7 @@ echo [4/4] compiling gpm-probe-tray.exe (signed-in user's status icon) ...
   /r:System.Drawing.dll /r:System.Windows.Forms.dll /r:System.Web.Extensions.dll /r:System.Security.dll /r:System.Windows.Forms.DataVisualization.dll /r:System.ServiceProcess.dll ^
   /win32icon:assets\probe.ico ^
   /resource:assets\probe.ico,Gpm.probe.ico /resource:assets\probe-warning.ico,Gpm.probe-warning.ico ^
-  src\ProbeTray.cs src\ProbeSettingsForm.cs src\LocalFiles.cs src\TrayIcon.cs src\TrayUi.cs src\ProbeConfig.cs src\Config.cs src\Model.cs
+  src\ProbeTray.cs src\ProbePowerReminder.cs src\ProbeSettingsForm.cs src\LocalFiles.cs src\TrayIcon.cs src\TrayUi.cs src\ProbeConfig.cs src\Config.cs src\Model.cs
 if errorlevel 1 exit /b 1
 icacls "%~dp0gpm-probe-tray.exe" /setintegritylevel M >nul
 if errorlevel 1 exit /b 1

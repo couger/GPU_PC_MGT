@@ -42,6 +42,8 @@ gpm-remote.exe --serve-config "C:\ProgramData\GPUPCMGT\probe-config.json"
 
 常驻运行可用 Windows 任务计划程序分别配置采集任务与登录用户托盘任务。托盘需要运行在用户桌面会话中，关闭探针状态图标不会停止独立采集进程。`tools/install-probe-tray.ps1` 和 `tools/upgrade-probe-config.ps1` 是针对已有 `GPUPCMGT-Probe` 任务的安装／迁移辅助脚本，不是全新安装向导。
 
+探针托盘默认启用性能模式提醒：系统开启节能模式或处于能效／平衡模式时，在当前用户桌面显示置顶提示；关闭提示后 60 秒再次显示，恢复高性能／最佳性能后自动消失。检测使用实际电源模式和新版节能状态通知，不根据厂商电源计划名称判断。托盘菜单“关闭性能模式提醒”可立即关闭提醒并保存选择到本地 `probe-ui.json`，重启后仍有效。提醒只提供 Windows 电源设置入口，不修改电源、睡眠或网络设置。验证该功能可运行 `tools/run-probe-power-test.ps1`。
+
 SSH 通道需先启用目标电脑的 OpenSSH Server、配置有效账号／密钥与相应入站规则。界面可配置 SSH 目标；SSH 采集会在远端的 `C:\ProgramData\GPUPCMGT` 部署采集器。软件不会因为显示 SSH 状态而自动开启该服务。
 
 示例配置使用文档专用地址 `192.0.2.10`，不能作为实际目标连接。
