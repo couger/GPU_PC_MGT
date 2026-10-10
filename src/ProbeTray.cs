@@ -25,6 +25,8 @@ namespace Gpm
         static string _summary="";
         static string _pollHost="127.0.0.1";
         static ProbePowerReminder _powerReminder;
+        static readonly IProbePowerModes _powerModes=new WindowsProbePowerModes();
+        static ProbePowerReader _powerReader;
         [STAThread]
         static int Main(string[] args)
         {
@@ -52,6 +54,7 @@ namespace Gpm
                 using(var powerReminder=new ProbePowerReminder(Path.Combine(_dir,"probe-ui.json"),powerReader.Read))
                 {
                     _powerReminder=powerReminder;
+                    _powerReader=powerReader;
                     tray.Clicked+=delegate { ShowMenu(owner,tray); };
                     tray.MenuRequested+=delegate { ShowMenu(owner,tray); };
                     Thread worker=new Thread(Poll);worker.IsBackground=true;worker.Start();
@@ -75,13 +78,16 @@ namespace Gpm
         static void ShowMenu(Form owner,TrayIcon tray)
         {
             tray.HideFlyout();
-            int command=TrayMenu.Show(owner,"探针状态："+(_status.Warning?"异常":"运行中"),"探针设置…","复制连接凭据","打开探针目录",(_powerReminder.Enabled?"关闭":"开启")+"性能模式提醒","-","退出状态图标（保留采集）");
+            bool plugged=true;ProbePowerMode mode=ProbePowerMode.Unknown;string scope="状态未知";
+            try{plugged=WindowsProbePowerModes.PluggedIn;mode=_powerModes.Get(plugged);scope=plugged?"接通电源":"使用电池";}catch(Exception ex){UiLog.W("power menu read: "+ex.GetType().Name);}
+            int command=TrayMenu.ShowChecked(owner,mode==ProbePowerMode.Unknown?0:7+(int)mode,"探针状态："+(_status.Warning?"异常":"运行中"),"探针设置…","复制连接凭据","打开探针目录","-","电源模式（"+scope+"）","最佳能效","平衡","最佳性能",(_powerReminder.Enabled?"关闭":"开启")+"性能模式提醒","-","退出状态图标（保留采集）");
             try{
-            if(command==2)using(var form=new ProbeSettingsForm(_configPath))form.ShowDialog();
+            if(command==2)using(var form=new ProbeSettingsForm(_configPath,_powerModes,_powerReader.Read))form.ShowDialog();
             else if(command==3)Clipboard.SetText(ProbeConfig.Load(_configPath).Profile());
             else if(command==4)Process.Start("explorer.exe",_dir);
-            else if(command==5)_powerReminder.SetEnabled(!_powerReminder.Enabled);
-            else if(command==7)Application.ExitThread();
+            else if(command>=7&&command<=9){bool currentSource=WindowsProbePowerModes.PluggedIn;if(currentSource!=plugged)throw new InvalidOperationException("供电方式刚刚变化，请重新打开菜单选择电源模式。");_powerModes.Set(plugged,(ProbePowerMode)(command-7));UiLog.W("user power mode set: source="+(plugged?"AC":"DC")+" mode="+(command-7));if(_powerReader.Read().EnergySaver>0)tray.Balloon("电源模式已保存","节能模式仍开启，可能继续限制性能。可按 Win + A 关闭节能模式。");}
+            else if(command==10)_powerReminder.SetEnabled(!_powerReminder.Enabled);
+            else if(command==12)Application.ExitThread();
             }catch(Exception ex){MessageBox.Show(ex.Message,"探针配置");}
         }
         static string Number(Dictionary<string,object> json,string key,string suffix)

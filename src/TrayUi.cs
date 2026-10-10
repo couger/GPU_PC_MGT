@@ -39,12 +39,14 @@ namespace Gpm
         [DllImport("user32.dll")] static extern int TrackPopupMenuEx(IntPtr menu,uint flags,int x,int y,IntPtr owner,IntPtr parameters);
         [DllImport("user32.dll")] static extern bool PostMessage(IntPtr window,int message,IntPtr wParam,IntPtr lParam);
         public static int Show(Form owner, params string[] items)
+        {return ShowChecked(owner,0,items);}
+        public static int ShowChecked(Form owner,int checkedId,params string[] items)
         {
             IntPtr menu=CreatePopupMenu();
             if(menu==IntPtr.Zero) return 0;
             try
             {
-                for(int i=0;i<items.Length;i++) AppendMenu(menu,items[i]=="-"?0x800u:0u,new UIntPtr((uint)(i+1)),items[i]=="-"?null:items[i]);
+                for(int i=0;i<items.Length;i++) AppendMenu(menu,items[i]=="-"?0x800u:i+1==checkedId?8u:0u,new UIntPtr((uint)(i+1)),items[i]=="-"?null:items[i]);
                 SetForegroundWindow(owner.Handle);
                 Point p=Cursor.Position;
                 int selected=TrackPopupMenuEx(menu,0x100u|0x2u|0x10u,p.X,p.Y,owner.Handle,IntPtr.Zero);
