@@ -1,4 +1,4 @@
-param([switch]$SkipTls)
+﻿param([switch]$SkipTls)
 $ErrorActionPreference='Stop'
 $root=Split-Path $PSScriptRoot -Parent
 Set-Location -LiteralPath $root

@@ -1,4 +1,4 @@
-#Requires -RunAsAdministrator
+﻿#Requires -RunAsAdministrator
 [CmdletBinding(SupportsShouldProcess)]param()
 $ErrorActionPreference='Stop'
 $base=[IO.Path]::GetFullPath((Join-Path $env:ProgramData 'GPUPCMGT'))

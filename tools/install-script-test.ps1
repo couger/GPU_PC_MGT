@@ -1,4 +1,4 @@
-$ErrorActionPreference='Stop'
+﻿$ErrorActionPreference='Stop'
 $root=Split-Path $PSScriptRoot -Parent
 $source=Get-Content -LiteralPath (Join-Path $PSScriptRoot 'install-probe.ps1') -Raw
 # Exercise planning in an isolated scope with read-only mocks, never bypass elevation for a real install.

@@ -1,4 +1,4 @@
-param([string]$NewExecutablePath)
+﻿param([string]$NewExecutablePath)
 $ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'
 $dir=Join-Path $env:LOCALAPPDATA 'GPUPCMGT'
 $tray=Join-Path $dir 'gpm-probe-tray.exe'

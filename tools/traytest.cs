@@ -1,4 +1,4 @@
-// tools/traytest.cs -- 最小托盘测试：定位 Shell_NotifyIcon(NIM_ADD) 返回 ERROR_INVALID_WINDOW_HANDLE(1400) 的原因
+﻿// tools/traytest.cs -- 最小托盘测试：定位 Shell_NotifyIcon(NIM_ADD) 返回 ERROR_INVALID_WINDOW_HANDLE(1400) 的原因
 //
 // 在同一个进程里做三次对照：
 //   C) 窗口 Show() 之前注册（复现 .NET NotifyIcon 与我之前的时机）

@@ -1,4 +1,4 @@
-param([switch]$SkipDesktop)
+﻿param([switch]$SkipDesktop)
 $ErrorActionPreference='Stop'
 $root=Split-Path $PSScriptRoot -Parent
 Set-Location -LiteralPath $root

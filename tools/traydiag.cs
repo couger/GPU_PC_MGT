@@ -1,4 +1,4 @@
-// tools/traydiag.cs -- 托盘问题专项诊断（结构正确版）
+﻿// tools/traydiag.cs -- 托盘问题专项诊断（结构正确版）
 //
 // 修正两处此前的诊断错误：
 //   1) Shell_NotifyIconGetRect 要的是 40 字节的 NOTIFYICONIDENTIFIER，不是 976 字节的 NOTIFYICONDATA

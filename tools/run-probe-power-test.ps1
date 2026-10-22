@@ -1,4 +1,4 @@
-$ErrorActionPreference='Stop'
+﻿$ErrorActionPreference='Stop'
 $root=Split-Path $PSScriptRoot -Parent
 Set-Location -LiteralPath $root
 $output=Join-Path $root '.tmp\probe-power-tests';New-Item -ItemType Directory -Path $output -Force | Out-Null
