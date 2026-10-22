@@ -10,6 +10,8 @@ $plan=[scriptblock]::Create(($source -replace '(?m)^#Requires -RunAsAdministrato
     function New-Item {throw 'Installation planning attempted a mutation'}
     & $Plan -MonitorAddress 192.0.2.20 -HostAddress 192.0.2.10 -SourceDirectory $Root -WhatIf
     Write-Output 'PASS installer WhatIf performs no mutation'
+    & $Plan -MonitorAddress 192.0.2.20 -HostAddress 192.0.2.10 -SourceDirectory $Root -FirewallProfile Public -WhatIf
+    Write-Output 'PASS explicit Public profile planning retains exact monitor restriction'
     $rejected=$false
     try{& $Plan -MonitorAddress 'host -oProxyCommand=evil' -SourceDirectory $Root -WhatIf}catch{$rejected=$true}
     if(!$rejected){throw 'Invalid monitor address accepted'}

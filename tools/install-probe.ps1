@@ -4,6 +4,7 @@ param(
     [Parameter(Mandatory)][string]$MonitorAddress,
     [string]$HostAddress=$env:COMPUTERNAME,
     [ValidateRange(1,65535)][int]$Port=9187,
+    [ValidateSet('Private','Public')][string]$FirewallProfile='Private',
     [string]$SourceDirectory=(Split-Path $PSScriptRoot -Parent),
     [switch]$Upgrade
 )
@@ -99,7 +100,7 @@ try{
     $action=New-ScheduledTaskAction -Execute $tray -WorkingDirectory $trayDir
     Register-ScheduledTask -TaskName 'GPUPCMGT-ProbeTray' -Action $action -Trigger (New-ScheduledTaskTrigger -AtLogOn -User $identity.Name) -Principal (New-ScheduledTaskPrincipal -UserId $identity.Name -LogonType Interactive -RunLevel Limited) -Settings $settings -Force | Out-Null
     if($oldFirewall){$oldFirewall|Remove-NetFirewallRule}
-    New-NetFirewallRule -Name 'GPUPCMGT-Probe-TLS' -DisplayName 'GPU PC probe TLS (exact monitor IP)' -Direction Inbound -Action Allow -Protocol TCP -LocalPort $Port -RemoteAddress $MonitorAddress -Program $core -Profile Private -ErrorAction Stop | Out-Null
+    New-NetFirewallRule -Name 'GPUPCMGT-Probe-TLS' -DisplayName 'GPU PC probe TLS (exact monitor IP)' -Direction Inbound -Action Allow -Protocol TCP -LocalPort $Port -RemoteAddress $MonitorAddress -Program $core -Profile $FirewallProfile -ErrorAction Stop | Out-Null
     Start-ScheduledTask -TaskName 'GPUPCMGT-Probe'
     Start-ScheduledTask -TaskName 'GPUPCMGT-ProbeTray'
     Start-Sleep -Seconds 3

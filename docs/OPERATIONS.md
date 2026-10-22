@@ -5,7 +5,7 @@
 1. 在目标 Windows 11 x64 设备构建四个程序，使用可信源码。以实际显示托盘的日常账号打开管理员 Windows PowerShell 5.1，不能用另一个管理员账号代替。
 2. tools/install-probe.ps1 -MonitorAddress 192.0.2.20 -HostAddress 192.0.2.10 -WhatIf；替换文档地址，确认后去掉 WhatIf。
 3. 安装创建 LocalMachine/My 两年有效证书、开机 SYSTEM 采集任务、登录用户 Limited 托盘任务。采集放在 ProgramData/GPUPCMGT/bin，共享配置在 config 子目录，托盘在用户 LocalAppData/GPUPCMGT。bin 对普通用户只读，仅配置子目录允许操作者修改。
-4. 防火墙仅 Private 网络、指定监控端 IP、端口及 EXE。不改变网络配置文件、睡眠、路由器或 SSH。
+4. 防火墙默认仅 Private 网络、指定监控端 IP、端口及 EXE。若目标实际网络被系统标为 Public，核实可信局域网后显式传入 `-FirewallProfile Public`，仍只放行该监控端。脚本不改变网络类别、睡眠、路由器或 SSH。
 5. 从探针设置复制 TLS 连接凭据，可信地交给监控端粘贴、测试、保存。不要公开凭据。
 
 ## 升级
