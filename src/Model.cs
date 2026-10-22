@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 
 namespace Gpm
@@ -56,6 +56,8 @@ namespace Gpm
         public int Port = 22;
         /// <summary>常驻探针端点的令牌（kind = probe 时使用）</summary>
         public string Token = "";
+        public string TlsFingerprint = "";
+        public bool AllowInsecureProbe;
         public string Password = "";             // 可选：没有密钥时走密码（需要 askpass 辅助程序）
         public string AskPass = "";
         public int IntervalSec = 2;

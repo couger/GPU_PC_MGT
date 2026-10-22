@@ -15,8 +15,7 @@
 #>
 param(
     [string]$TargetHost = '192.0.2.10',
-    [string]$User = 'monitoruser',
-    [string]$Password
+    [string]$User = 'monitoruser'
 )
 
 function Tcp-Test([string]$h, [int]$port, [int]$timeoutMs = 2500) {
@@ -38,11 +37,7 @@ foreach ($p in 135, 5985, 5986, 445, 22) {
     Write-Host ("    {0,-6} {1,-12} {2}" -f $p, $name, $(if ($ok) { 'OK' } else { 'closed' }))
 }
 
-if (-not $Password) {
-    $sec = Read-Host -Prompt "  输入 $User 的密码（不会显示）" -AsSecureString
-} else {
-    $sec = ConvertTo-SecureString $Password -AsPlainText -Force
-}
+$sec = Read-Host -Prompt "输入 $User 的密码（不接受命令行密码）" -AsSecureString
 $cred = New-Object System.Management.Automation.PSCredential($User, $sec)
 
 $hasCred = (Get-Command Get-Counter).Parameters.ContainsKey('Credential')

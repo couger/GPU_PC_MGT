@@ -25,7 +25,7 @@ echo [2/4] compiling GPUPCMonitor.exe (local viewer) ...
   /win32icon:assets\monitor.ico ^
   /resource:assets\monitor.ico,Gpm.monitor.ico /resource:assets\monitor-warning.ico,Gpm.monitor-warning.ico ^
   /out:GPUPCMonitor.exe ^
-  src\Model.cs src\Native.cs src\LocalSampler.cs src\LocalFiles.cs src\RemoteSampler.cs src\Config.cs src\Ui.cs src\DashboardPanel.cs src\FaultHistory.cs src\FaultHistoryForm.cs src\Alerts.cs src\WidgetForm.cs src\Program.cs src\SettingsForm.cs src\TrayIcon.cs src\TrayUi.cs src\ProbeConfig.cs
+  src\Model.cs src\Native.cs src\LocalSampler.cs src\LocalFiles.cs src\RemoteSampler.cs src\Config.cs src\Ui.cs src\DashboardPanel.cs src\FaultHistory.cs src\FaultHistoryForm.cs src\Alerts.cs src\WidgetForm.cs src\Program.cs src\SettingsForm.cs src\TrayIcon.cs src\TrayUi.cs src\Security.cs src\ProbeConfig.cs
 if errorlevel 1 exit /b 1
 
 rem The workspace may carry an inherited Low integrity label. The desktop
@@ -38,7 +38,7 @@ if errorlevel 1 (
 
 echo [3/4] compiling gpm-remote.exe (runs ON the monitored machine) ...
 "%CSC%" /nologo /platform:x64 /optimize+ /target:exe /out:gpm-remote.exe ^
-  /r:System.Web.Extensions.dll /r:System.Security.dll /r:System.Windows.Forms.DataVisualization.dll /win32icon:assets\probe.ico src\ProbeConfig.cs src\RemoteAgent.cs src\Model.cs src\Native.cs src\LocalSampler.cs src\LocalFiles.cs
+  /r:System.Web.Extensions.dll /r:System.Security.dll /r:System.Windows.Forms.DataVisualization.dll /win32icon:assets\probe.ico src\Security.cs src\ProbeConfig.cs src\RemoteAgent.cs src\Model.cs src\Native.cs src\LocalSampler.cs src\LocalFiles.cs
 if errorlevel 1 exit /b 1
 
 echo [4/4] compiling gpm-probe-tray.exe (signed-in user's status icon) ...
@@ -46,7 +46,7 @@ echo [4/4] compiling gpm-probe-tray.exe (signed-in user's status icon) ...
   /r:System.Drawing.dll /r:System.Windows.Forms.dll /r:System.Web.Extensions.dll /r:System.Security.dll /r:System.Windows.Forms.DataVisualization.dll /r:System.ServiceProcess.dll ^
   /win32icon:assets\probe.ico ^
   /resource:assets\probe.ico,Gpm.probe.ico /resource:assets\probe-warning.ico,Gpm.probe-warning.ico ^
-  src\ProbeTray.cs src\ProbePowerReminder.cs src\ProbePowerModes.cs src\ProbeSettingsForm.cs src\LocalFiles.cs src\TrayIcon.cs src\TrayUi.cs src\ProbeConfig.cs src\Config.cs src\Model.cs
+  src\ProbeTray.cs src\ProbePowerReminder.cs src\ProbePowerModes.cs src\ProbeSettingsForm.cs src\LocalFiles.cs src\TrayIcon.cs src\TrayUi.cs src\Security.cs src\ProbeConfig.cs src\Config.cs src\Model.cs
 if errorlevel 1 exit /b 1
 icacls "%~dp0gpm-probe-tray.exe" /setintegritylevel M >nul
 if errorlevel 1 exit /b 1

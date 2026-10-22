@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
@@ -83,7 +83,7 @@ namespace Gpm
             int command=TrayMenu.ShowChecked(owner,mode==ProbePowerMode.Unknown?0:7+(int)mode,"探针状态："+(_status.Warning?"异常":"运行中"),"探针设置…","复制连接凭据","打开探针目录","-","电源模式（"+scope+"）","最佳能效","平衡","最佳性能",(_powerReminder.Enabled?"关闭":"开启")+"性能模式提醒","-","退出状态图标（保留采集）");
             try{
             if(command==2)using(var form=new ProbeSettingsForm(_configPath,_powerModes,_powerReader.Read))form.ShowDialog();
-            else if(command==3)Clipboard.SetText(ProbeConfig.Load(_configPath).Profile());
+            else if(command==3){Clipboard.SetText(ProbeConfig.Load(_configPath).Profile());tray.Balloon("连接凭据已复制","包含秘密令牌，请勿公开粘贴；注意剪贴板历史和跨设备同步。");}
             else if(command==4)Process.Start("explorer.exe",_dir);
             else if(command>=7&&command<=9){bool currentSource=WindowsProbePowerModes.PluggedIn;if(currentSource!=plugged)throw new InvalidOperationException("供电方式刚刚变化，请重新打开菜单选择电源模式。");_powerModes.Set(plugged,(ProbePowerMode)(command-7));UiLog.W("user power mode set: source="+(plugged?"AC":"DC")+" mode="+(command-7));if(_powerReader.Read().EnergySaver>0)tray.Balloon("电源模式已保存","节能模式仍开启，可能继续限制性能。可按 Win + A 关闭节能模式。");}
             else if(command==10)_powerReminder.SetEnabled(!_powerReminder.Enabled);
@@ -92,6 +92,7 @@ namespace Gpm
         }
         static string Number(Dictionary<string,object> json,string key,string suffix)
         { object value;return json.TryGetValue(key,out value)&&value!=null?Convert.ToDouble(value).ToString("0.0")+suffix:"—"; }
+        static string GetPin(ProbeConfig config){if(config.CertificateThumbprint.Length==0)return "";using(var cert=ProbeWire.ServerCertificate(config.CertificateThumbprint))return ProbeWire.Fingerprint(cert);}
         static void Poll()
         {
             while(!_stopping)
@@ -109,11 +110,10 @@ namespace Gpm
                         IAsyncResult connect=client.BeginConnect(_pollHost,_port,null,null);
                         using(connect.AsyncWaitHandle)if(!connect.AsyncWaitHandle.WaitOne(1500))throw new IOException("端点未响应");
                         client.EndConnect(connect);client.ReceiveTimeout=1500;client.SendTimeout=1500;
-                        using(NetworkStream stream=client.GetStream())
-                        using(StreamReader reader=new StreamReader(stream,Encoding.UTF8))
+                        using(Stream stream=ProbeWire.Client(client.GetStream(),_pollHost,File.Exists(_configPath)?GetPin(ProbeConfig.Load(_configPath)):""))
                         {
                             byte[] auth=Encoding.ASCII.GetBytes(_token+"\n");stream.Write(auth,0,auth.Length);
-                            string line=reader.ReadLine();if(line==null||line.Length>65536)throw new IOException("无有效采样");
+                            string line=ProbeWire.ReadLine(stream,65536,1500);
                             Dictionary<string,object> j=new JavaScriptSerializer().Deserialize<Dictionary<string,object>>(line);
                             object error;if(j.TryGetValue("error",out error))throw new IOException("探针暂不可用");
                             double total=Convert.ToDouble(j["memTotal"]),avail=Convert.ToDouble(j["memAvail"]);

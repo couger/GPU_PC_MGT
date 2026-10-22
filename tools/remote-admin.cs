@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Reflection;
 using System.Text;
@@ -19,12 +19,13 @@ class RemoteAdmin
             {
                 ProcessStartInfo p = new ProcessStartInfo("scp");
                 p.UseShellExecute=false;p.CreateNoWindow=true;p.RedirectStandardOutput=true;p.RedirectStandardError=true;
-                p.Arguments="-o StrictHostKeyChecking=accept-new -o ConnectTimeout=8 -o NumberOfPasswordPrompts=1 -P "+target.Port;
-                if(target.KnownHosts.Length>0)p.Arguments+=" -o UserKnownHostsFile=\""+target.KnownHosts+"\"";
-                if(target.KeyFile.Length>0)p.Arguments+=" -i \""+target.KeyFile+"\" -o IdentitiesOnly=yes";
+                SafeInput.Ssh(target);SafeInput.PathValue(args[2]);SafeInput.PathValue(args[3]);
+                p.Arguments="-o StrictHostKeyChecking=yes -o ConnectTimeout=8 -o NumberOfPasswordPrompts=1 -P "+target.Port;
+                if(target.KnownHosts.Length>0)p.Arguments+=" -o "+SafeInput.Arg("UserKnownHostsFile="+target.KnownHosts);
+                if(target.KeyFile.Length>0)p.Arguments+=" -i "+SafeInput.Arg(target.KeyFile)+" -o IdentitiesOnly=yes";
                 else { p.EnvironmentVariables["SSH_ASKPASS"]=Path.Combine(Config.Dir,"ssh-askpass.exe");p.EnvironmentVariables["SSH_ASKPASS_REQUIRE"]="force";p.EnvironmentVariables["GPM_SSH_PW"]=target.Password; }
-                if(args[1]=="--upload")p.Arguments+=" \""+Path.GetFullPath(args[2])+"\" "+target.User+"@"+target.Host+":"+args[3];
-                else p.Arguments+=" "+target.User+"@"+target.Host+":"+args[2]+" \""+Path.GetFullPath(args[3])+"\"";
+                string remote=target.User+"@"+target.Host+":"+(args[1]=="--upload"?args[3]:args[2]);
+                p.Arguments+=" -- "+(args[1]=="--upload"?SafeInput.Arg(Path.GetFullPath(args[2]))+" "+SafeInput.Arg(remote):SafeInput.Arg(remote)+" "+SafeInput.Arg(Path.GetFullPath(args[3])));
                 using(Process transfer=Process.Start(p))
                 {
                     var stdout=transfer.StandardOutput.ReadToEndAsync();var stderr=transfer.StandardError.ReadToEndAsync();

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
@@ -103,7 +103,7 @@ namespace Gpm
             Controls.Add(_status);
             Button paste=Btn("粘贴连接凭据",12,445,210);paste.Click+=delegate
             {
-                try{var profile=ConnectionProfile.Parse(Clipboard.GetText());_kind.SelectedItem="probe";_name.Text=profile.Name;_host.Text=profile.Host;_port.Text=profile.Port.ToString();_token.Text=profile.Token;_status.Text="已填入探针连接信息，请测试并保存。";}
+                try{var profile=ConnectionProfile.Parse(Clipboard.GetText());_kind.SelectedItem="probe";_name.Text=profile.Name;_host.Text=profile.Host;_port.Text=profile.Port.ToString();_token.Text=profile.Token;Current().TlsFingerprint=profile.TlsFingerprint;Current().AllowInsecureProbe=false;_status.Text="已填入探针连接信息，请测试并保存。";}
                 catch(Exception ex){_status.Text="无法粘贴："+ex.Message;}
             };Controls.Add(paste);
 
@@ -276,26 +276,8 @@ namespace Gpm
             if (t.Kind == "local") result = "local 无需测试（本机直采）";
             else if (t.Kind == "probe")
             {
-                try
-                {
-                    using (TcpClient c = new TcpClient())
-                    {
-                        c.ReceiveTimeout = 5000; c.SendTimeout = 5000;
-                        c.Connect(t.Host, t.Port);
-                        using (NetworkStream ns = c.GetStream())
-                        {
-                            ns.ReadTimeout = 5000; ns.WriteTimeout = 5000;
-                            byte[] b = Encoding.ASCII.GetBytes(t.Token + "\n");
-                            ns.Write(b, 0, b.Length); ns.Flush();
-                            byte[] buf = new byte[16384];
-                            int n = ns.Read(buf, 0, buf.Length);
-                            string s = Encoding.UTF8.GetString(buf, 0, n);
-                            result = s.IndexOf("\"error\"") >= 0 ? "端点有响应但拒绝：" + s.Substring(0, Math.Min(80, s.Length))
-                                                                 : "端点正常，返回 " + n + " 字节";
-                        }
-                    }
-                }
-                catch (Exception ex) { result = "连接失败：" + ex.Message; }
+                try{var sample=new RemoteSampler(t).Fetch(true);result=sample.Ok?"探针连接和有效采样正常":"探针失败："+sample.Error;}
+                catch(Exception ex){result="连接失败："+ex.Message;}
             }
             else
             {

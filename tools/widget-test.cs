@@ -13,7 +13,12 @@ class WidgetTest
     [DllImport("user32.dll")]static extern IntPtr WindowFromPoint(Point point);
     static void Check(bool ok,string text){if(!ok)throw new Exception(text);Console.WriteLine("PASS "+text);}
     static void Pump(int ms){DateTime end=DateTime.UtcNow.AddMilliseconds(ms);while(DateTime.UtcNow<end){Application.DoEvents();Thread.Sleep(20);}}
-    [STAThread]static void Main(string[] args)
+    static void WaitUntil(Func<bool> condition){DateTime deadline=DateTime.UtcNow.AddSeconds(3);while(!condition()&&DateTime.UtcNow<deadline)Pump(40);}
+    [STAThread]static int Main(string[] args)
+    {
+        try{Run(args);return 0;}catch(Exception ex){Console.Error.WriteLine(ex.GetType().Name+": "+ex.Message);return 1;}
+    }
+    static void Run(string[] args)
     {
         Application.EnableVisualStyles();Application.SetCompatibleTextRenderingDefault(false);
         var area=Screen.PrimaryScreen.WorkingArea;Point previous=Cursor.Position;
@@ -28,6 +33,7 @@ class WidgetTest
             Check(form.Left==area.Right-WidgetGeometry.Tab,"right edge hides to visible tab");
             using(var graphics=form.CreateGraphics())Check(form.Region!=null&&form.Region.GetBounds(graphics).Width==WidgetGeometry.Tab,"hidden body clipped away from adjacent monitor");
             type.GetMethod("ShowAlert").Invoke(form,new object[]{target,"模拟高温提示"});Pump(700);
+            WaitUntil(delegate{return form.Left==area.Right-form.Width;});
             Check(form.Left==area.Right-form.Width&&prefs.AutoHide,"alert slides out without changing auto-hide preference");
             using(var alertImage=new Bitmap(form.Width,form.Height)){form.DrawToBitmap(alertImage,new Rectangle(Point.Empty,alertImage.Size));alertImage.Save(Path.Combine(args[0],".tmp","widget-alert-preview.png"),ImageFormat.Png);}
             type.GetField("_alertUntil",BindingFlags.Instance|BindingFlags.NonPublic).SetValue(form,DateTime.UtcNow.AddSeconds(-1));Pump(900);

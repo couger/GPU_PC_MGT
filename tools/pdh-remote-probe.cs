@@ -1,4 +1,4 @@
-// pdh-remote-probe.cs -- validate the "remote PDH counters" channel natively.
+﻿// pdh-remote-probe.cs -- validate the "remote PDH counters" channel natively.
 //
 // Why a separate probe: the PDH API has NO credential parameter. Remote counter access
 // uses the caller's security context, so for a workgroup we need a "network-only" logon
@@ -10,7 +10,7 @@
 // So this probe buffers all output and prints it only AFTER RevertToSelf().
 //
 // Build: csc /platform:x64 /out:pdh-remote-probe.exe tools\pdh-remote-probe.cs
-// Run  : pdh-remote-probe.exe <host> <user> <password> [domain]
+// Run  : pdh-remote-probe.exe <host> <user> [domain]
 //
 // NOTE: keep this file ASCII-only (csc may read a BOM-less file with the ANSI code page).
 
@@ -83,13 +83,16 @@ class PdhRemoteProbe
 
     static int Main(string[] args)
     {
-        if (args.Length < 3)
+        if (args.Length < 2 || args.Length > 3)
         {
-            Console.WriteLine("usage: pdh-remote-probe.exe <host> <user> <password> [domain]");
+            Console.WriteLine("usage: pdh-remote-probe.exe <host> <user> [domain]");
             return 2;
         }
-        string host = args[0], user = args[1], pass = args[2];
-        string domain = args.Length > 3 ? args[3] : ".";
+        string host=args[0],user=args[1];
+        Console.Write("Password (hidden input): ");var secret=new System.Text.StringBuilder();
+        while(true){var key=Console.ReadKey(true);if(key.Key==ConsoleKey.Enter)break;if(key.Key==ConsoleKey.Backspace){if(secret.Length>0)secret.Length--;}else if(!char.IsControl(key.KeyChar))secret.Append(key.KeyChar);}
+        Console.WriteLine();string pass=secret.ToString();secret.Clear();
+        string domain = args.Length > 2 ? args[2] : ".";
         string src = "\\\\" + host;
 
         P("== remote host " + host + "   user " + user + "   domain " + domain + " ==");

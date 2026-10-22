@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Security.Cryptography;
@@ -75,6 +75,11 @@ namespace Gpm
                     t.KnownHosts = Str(d, "knownHosts");
                     t.Port = (int)Num(d, "port", 22);
                     t.Token = Str(d, "token");
+                    string tokenProtected=Str(d,"tokenProtected");
+                    if(tokenProtected.Length>0)t.Token=Unprotect(tokenProtected);
+                    else if(t.Token.Length>0)needSave=true;
+                    t.TlsFingerprint=Str(d,"tlsFingerprint");
+                    t.AllowInsecureProbe=Num(d,"allowInsecureProbe",0)!=0;
                     t.IntervalSec = (int)Num(d, "intervalSec", 2);
                     if (t.IntervalSec < 1) t.IntervalSec = 1;
                     t.Enabled = (Num(d, "enabled", 1) != 0);
@@ -99,6 +104,7 @@ namespace Gpm
                     {
                         t.Password = Unprotect(prot);
                     }
+                    if(t.Enabled&&t.Kind=="ssh")SafeInput.Ssh(t);
                     list.Add(t);
                 }
             }
@@ -129,12 +135,16 @@ namespace Gpm
             for (int i = 0; i < targets.Count; i++)
             {
                 Target t = targets[i];
+                if(t.Enabled&&t.Kind=="ssh")SafeInput.Ssh(t);
+                if(t.Enabled&&t.Kind=="probe"){SafeInput.Host(t.Host);ProbeWire.ValidatePin(t.TlsFingerprint);}
                 sb.Append("    { \"name\": ").Append(Js(t.Name));
                 sb.Append(", \"kind\": ").Append(Js(t.Kind));
                 if (t.Host.Length > 0) sb.Append(", \"host\": ").Append(Js(t.Host));
                 if (t.User.Length > 0) sb.Append(", \"user\": ").Append(Js(t.User));
                 if (t.Port != 22) sb.Append(", \"port\": ").Append(t.Port);
-                if (t.Token.Length > 0) sb.Append(", \"token\": ").Append(Js(t.Token));
+                if (t.Token.Length > 0) sb.Append(", \"tokenProtected\": ").Append(Js(Protect(t.Token)));
+                if(t.TlsFingerprint.Length>0)sb.Append(", \"tlsFingerprint\": ").Append(Js(t.TlsFingerprint));
+                if(t.AllowInsecureProbe)sb.Append(", \"allowInsecureProbe\": 1");
                 if (t.KeyFile.Length > 0) sb.Append(", \"keyFile\": ").Append(Js(t.KeyFile));
                 if (t.KnownHosts.Length > 0)
                 {
@@ -153,7 +163,7 @@ namespace Gpm
                 sb.Append("\n");
             }
             sb.Append("  ]\n}\n");
-            File.WriteAllText(path, sb.ToString(), new UTF8Encoding(false));
+            PrivateFile.Write(path,sb.ToString());
         }
 
         static string Js(string s)
@@ -179,7 +189,7 @@ namespace Gpm
                 byte[] enc = ProtectedData.Protect(Encoding.UTF8.GetBytes(plain), null, DataProtectionScope.CurrentUser);
                 return Convert.ToBase64String(enc);
             }
-            catch { return ""; }
+            catch { throw new System.Security.Cryptography.CryptographicException("无法保护或读取当前用户的凭据"); }
         }
 
         public static string Unprotect(string b64)
@@ -189,7 +199,7 @@ namespace Gpm
                 byte[] dec = ProtectedData.Unprotect(Convert.FromBase64String(b64), null, DataProtectionScope.CurrentUser);
                 return Encoding.UTF8.GetString(dec);
             }
-            catch { return ""; }
+            catch { throw new System.Security.Cryptography.CryptographicException("无法保护或读取当前用户的凭据"); }
         }
 
         static string Str(IDictionary<string, object> d, string key)

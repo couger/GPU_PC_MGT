@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -35,14 +35,16 @@ namespace Gpm
         string _diagnosticError="";
         DateTime _lastDiagnosticUtc=DateTime.MinValue;
         bool? _connectionOk;
+        string _lastSampleId="";
+        DateTime _lastSampleAt;
 
         public RemoteSampler(Target t)
         {
             _t = t;
+            if(t.Kind=="ssh")SafeInput.Ssh(t);
+            else if(t.Kind=="probe"){SafeInput.Host(t.Host);ProbeWire.ValidatePin(t.TlsFingerprint);}
             // 探针目录可配置（默认 C:\ProgramData\GPUPCMGT）；远端 cmd 会按空格拆参数，所以路径不能有空格
-            string rdir = (t.RemoteDir == null ? "" : t.RemoteDir.Trim());
-            if (rdir.Length == 0 || rdir.IndexOf(' ') >= 0) rdir = @"C:\ProgramData\GPUPCMGT";
-            RemoteDir = rdir.TrimEnd('\\');
+            RemoteDir=SafeInput.RemoteDirectory(t.RemoteDir);
             RemoteScript = RemoteDir + @"\sampler.ps1";
             RemoteB64 = RemoteDir + @"\sampler.b64";
             RemoteAgent = RemoteDir + @"\gpm-remote.exe";
@@ -119,19 +121,7 @@ namespace Gpm
         // ---------------------------------------------------------------- 命令构造
         StringBuilder CommonOptions()
         {
-            StringBuilder sb = new StringBuilder();
-            sb.Append("-o StrictHostKeyChecking=accept-new");
-            sb.Append(" -o ConnectTimeout=8");
-            sb.Append(" -o NumberOfPasswordPrompts=1");
-            sb.Append(" -o ServerAliveInterval=5");
-            if (_t.KnownHosts.Length > 0) sb.Append(" -o UserKnownHostsFile=\"").Append(_t.KnownHosts).Append("\"");
-            if (_t.KeyFile.Length > 0)
-                sb.Append(" -i \"").Append(_t.KeyFile).Append("\" -o IdentitiesOnly=yes -o BatchMode=yes");
-            else
-                sb.Append(" -o PreferredAuthentications=password,keyboard-interactive");
-            if (_t.Port != 22) sb.Append(" -p ").Append(_t.Port);
-            sb.Append(" ").Append(_t.User).Append("@").Append(_t.Host);
-            return sb;
+            return new StringBuilder(SafeInput.SshOptions(_t));
         }
 
         /// <summary>远端命令行里绝不能出现 | &amp; &gt; &lt; 双引号 空格，否则会被远端 cmd 拆解
@@ -139,16 +129,14 @@ namespace Gpm
         string BuildCmdArguments(string script)
         {
             StringBuilder sb = CommonOptions();
-            sb.Append(" powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ").Append(script);
+            sb.Append(" powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand ").Append(Convert.ToBase64String(Encoding.Unicode.GetBytes(script)));
             return sb.ToString();
         }
 
         string BuildRunArguments(bool wantInfo)
         {
-            StringBuilder sb = CommonOptions();
-            if (_agentDeployed) sb.Append(" ").Append(RemoteAgent); else sb.Append(" powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File ").Append(RemoteScript);
-            sb.Append(_agentDeployed ? " " : " -WantInfo ").Append(wantInfo ? "1" : "0");
-            return sb.ToString();
+            string command=_agentDeployed?"& '"+RemoteAgent+"' "+(wantInfo?"1":"0"):"& '"+RemoteScript+"' -WantInfo "+(wantInfo?"1":"0");
+            return BuildCmdArguments(command);
         }
 
         // ---------------------------------------------------------------- 执行
@@ -201,7 +189,7 @@ namespace Gpm
         void DeployAgent()
         {
             string b64 = Convert.ToBase64String(_agent);
-            const int chunk = 7000;   // 远端 cmd.exe 命令行上限 8191 字符
+            const int chunk = 1600;   // 远端 cmd.exe 命令行上限 8191 字符
             int n = (b64.Length + chunk - 1) / chunk;
             for (int i = 0; i < n; i++)
             {
@@ -236,7 +224,7 @@ namespace Gpm
         void DeployScript()
         {
             string b64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(_payload));
-            const int chunk = 6000;                       // 远端 cmd 8191 字符上限的安全取值
+            const int chunk = 1600;                       // 远端 cmd 8191 字符上限的安全取值
             int n = (b64.Length + chunk - 1) / chunk;
             for (int i = 0; i < n; i++)
             {
@@ -285,6 +273,16 @@ namespace Gpm
                 js.MaxJsonLength = 32 * 1024 * 1024;
                 IDictionary<string, object> d = js.DeserializeObject(json) as IDictionary<string, object>;
                 if (d == null) throw new Exception("JSON 解析失败");
+                if(_t.Kind=="probe"){
+                    object version;bool modern=d.TryGetValue("protocolVersion",out version)&&Convert.ToInt32(version)==3;
+                    if(!modern)throw new IOException("探针协议版本过旧，请升级探针后再连接");
+                    object ok;if(!d.TryGetValue("ok",out ok)||!Convert.ToBoolean(ok))throw new IOException("探针采样失败或尚未就绪");
+                    double age=Num(d,"sampleAgeMs"),limit=Num(d,"maxAgeMs");
+                    if(Double.IsNaN(age)||Double.IsNaN(limit)||age<0||limit<1000||limit>7205000||age>limit)throw new IOException("探针读数已过期");
+                    s.At=DateTime.Now.AddMilliseconds(-age);
+                    string sampleId=Str(d,"sampleId");
+                    if(sampleId.Length>0){if(sampleId==_lastSampleId)s.At=_lastSampleAt;else{_lastSampleId=sampleId;_lastSampleAt=s.At;}}
+                }
                 string probeErr = Str(d, "error");
                 if (probeErr.Length > 0) throw new Exception("探针返回错误: " + probeErr);
 
@@ -358,13 +356,10 @@ namespace Gpm
                     {
                     StringBuilder dbg = new StringBuilder();
                     dbg.AppendLine(DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + "  " + _t.Name + " (" + _t.Host + ")");
-                    dbg.AppendLine("cmd: ssh " + _lastCmd);
+                    dbg.AppendLine("channel: "+_t.Kind+" (commands and raw responses omitted)");
                     dbg.AppendLine("err: " + ex.Message);
                     dbg.AppendLine("ssh 退出码: " + _lastExit + "   deployed=" + _deployed);
-                    dbg.AppendLine("--- stdout (" + _lastOut.Length + " chars) ---");
-                    dbg.AppendLine(_lastOut.Length > 4000 ? _lastOut.Substring(0, 4000) : _lastOut);
-                    dbg.AppendLine("--- stderr (" + _lastErr.Length + " chars) ---");
-                    dbg.AppendLine(_lastErr.Length > 4000 ? _lastErr.Substring(0, 4000) : _lastErr);
+                    dbg.AppendLine("diagnostic: "+ex.GetType().Name);
                     LocalFiles.WriteDiagnostic(Path.Combine(Config.DataDir, "ssh-error.txt"), dbg.ToString());
                     _diagnosticError=s.Error;_lastDiagnosticUtc=DateTime.UtcNow;
                     }
@@ -373,7 +368,7 @@ namespace Gpm
             }
             sw.Stop();
             s.CollectMs = (int)sw.ElapsedMilliseconds;
-            s.At = DateTime.Now;
+            if(_t.Kind!="probe"||!s.Ok)s.At = DateTime.Now;
             if(_connectionOk!=s.Ok){Program.RuntimeLog("connection "+_t.Name+" host="+_t.Host+" channel="+s.Channel+" ok="+s.Ok+(s.Ok?"":" error="+s.Error));_connectionOk=s.Ok;}
             if(s.Ok)_diagnosticError="";
             return s;
@@ -391,27 +386,16 @@ namespace Gpm
                 _lastOut="";_lastErr="";_lastCmd="";
                 var pending=c.BeginConnect(_t.Host,_t.Port,null,null);
                 using(var wait=pending.AsyncWaitHandle){if(!wait.WaitOne(5000))throw new TimeoutException("探针连接超时（5 秒）");c.EndConnect(pending);}
-                using (System.Net.Sockets.NetworkStream ns = c.GetStream())
+                if(String.IsNullOrEmpty(_t.TlsFingerprint)&&!_t.AllowInsecureProbe&&!System.Net.IPAddress.IsLoopback(c.Client.RemoteEndPoint is System.Net.IPEndPoint?((System.Net.IPEndPoint)c.Client.RemoteEndPoint).Address:System.Net.IPAddress.None))throw new IOException("局域网探针需要 TLS 连接凭据，请升级探针并重新复制；禁止自动降级明文连接");
+                using(var deadline=new System.Threading.Timer(delegate{try{c.Close();}catch{}},null,5000,System.Threading.Timeout.Infinite))
+                using (Stream ns = ProbeWire.Client(c.GetStream(),_t.Host,_t.TlsFingerprint))
                 {
                     ns.ReadTimeout = 5000;
                     ns.WriteTimeout = 5000;
                     byte[] b = Encoding.ASCII.GetBytes(_t.Token + "\n");
                     ns.Write(b, 0, b.Length);
                     ns.Flush();
-                    byte[] buf = new byte[16384];
-                    string s;
-                    var deadline=Stopwatch.StartNew();
-                    using(var payload=new MemoryStream())
-                    {
-                        while(true)
-                        {
-                            int remaining=5000-(int)deadline.ElapsedMilliseconds;if(remaining<=0)throw new TimeoutException("探针响应超时（5 秒）");ns.ReadTimeout=remaining;
-                            int n=ns.Read(buf,0,buf.Length);if(n==0)break;
-                            int newline=Array.IndexOf(buf,(byte)10,0,n);int count=newline>=0?newline+1:n;
-                            if(payload.Length+count>65536)throw new IOException("探针响应超过大小限制");payload.Write(buf,0,count);if(newline>=0)break;
-                        }
-                        s=Encoding.UTF8.GetString(payload.ToArray());
-                    }
+                    string s=ProbeWire.ReadLine(ns,65536,5000);
                     _lastOut = s; _lastErr = ""; _lastExit = 0;
                     return s;
                 }

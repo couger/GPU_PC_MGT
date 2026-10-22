@@ -1,4 +1,4 @@
-// RemoteAgent.cs -- the probe that runs ON the monitored machine.
+﻿// RemoteAgent.cs -- the probe that runs ON the monitored machine.
 //
 // Two modes:
 //   gpm-remote.exe [0|1]                     one-shot: sample once, print one JSON line (SSH fallback)
@@ -57,167 +57,83 @@ namespace Gpm
         }
 
         // ============================================================ resident mode
-        class Holder
+        sealed class Packet
         {
-            public volatile ProbeConfig Settings;
-            public volatile string Json = "";
-            public DateTime At = DateTime.MinValue;
-            public bool Ok;
-            public string LastError = "";
+            static long _serial;
+            static readonly string Session=Guid.NewGuid().ToString("N");
+            public readonly string Json,Id;public readonly long Tick;public readonly int MaxAge;
+            public Packet(Snapshot sample):this(sample,10){}
+            public Packet(Snapshot sample,int interval){Json=RemoteAgent.Json(sample);Tick=Stopwatch.GetTimestamp();MaxAge=Math.Max(15000,interval*2000+5000);Id=Session+"-"+Interlocked.Increment(ref _serial);}
         }
-
+        sealed class Holder {public volatile ProbeConfig Settings;public volatile Packet Latest;}
+        static string Response(Packet packet,int idle)
+        {
+            if(packet==null)return "{\"error\":\"no sample yet\"}";
+            double age=(Stopwatch.GetTimestamp()-packet.Tick)*1000.0/Stopwatch.Frequency;
+            double limit=packet.MaxAge;
+            if(age>limit)return "{\"error\":\"stale sample\"}";
+            return "{\"sampleId\":\""+packet.Id+"\",\"sampleAgeMs\":"+N(age)+",\"maxAgeMs\":"+N(limit)+","+packet.Json.Substring(1);
+        }
         static int Serve(string[] args)
         {
-            string configPath=args[0]=="--serve-config"?args[1]:null;
-            ProbeConfig settings=configPath!=null?ProbeConfig.Load(configPath):null;
-            int port = args.Length > 1 ? ToInt(args[1], 9187) : 9187;
-            string token = args.Length > 2 ? args[2] : "";
-            int interval = args.Length > 3 ? ToInt(args[3], 2) : 2;
-            int idle = args.Length > 4 ? ToInt(args[4], 10) : 10;
-            string bind = args.Length > 5 ? args[5] : "0.0.0.0";
-            if(settings!=null){port=settings.Port;token=settings.Token;interval=settings.Interval;idle=settings.Idle;bind=settings.Bind;}
-            if(token.Length==0)throw new ArgumentException("A probe token is required.");
-            if (interval < 1) interval = 1;
-            if (idle < interval) idle = interval;
-
-            Log("serve mode starting: port=" + port + " bind=" + bind + " interval=" + interval + "s idle=" + idle + "s token=" + (token.Length > 0 ? "set" : "EMPTY"));
-
-            Holder h = new Holder();
-            h.Settings=settings;
-
-            // ---- sampling thread: keeps the latest JSON fresh, sleeping when the machine is idle
-            LocalSampler sampler = new LocalSampler();
-            sampler.Prime();
-            Thread worker = new Thread(delegate()
-            {
-                while (true)
-                {
-                    Stopwatch sw = Stopwatch.StartNew();
-                    try
-                    {
-                        Snapshot s = sampler.Sample(1000);
-                        h.Json = Json(s);
-                        h.At = DateTime.Now;
-                        h.Ok = s.Ok;
-                        h.LastError = s.Error;
-                        if (!s.Ok && h.LastError.Length > 0) Log("sample error: " + h.LastError);
-                    }
-                    catch (Exception ex)
-                    {
-                        h.LastError = ex.Message;
-                        Log("sample exception: " + ex.Message);
-                    }
-                    sw.Stop();
-                    bool busy = h.Ok && (true);
-                    // adaptive: keep the fast cadence only while the machine is actually doing something
-                    ProbeConfig current=h.Settings;
-                    int iv = current!=null?current.Interval:interval;
-                    if (busy)
-                    {
-                        // parse the fields we need from the JSON text (cheap, no re-parse of the object)
-                        double cpu = FieldOf(h.Json, "\"cpuPct\":");
-                        double gpu = FieldOf(h.Json, "\"gpuPct\":");
-                        double disk = FieldOf(h.Json, "\"diskActive\":");
-                        if (cpu < 8 && gpu < 8 && disk < 10) iv = current!=null?current.Idle:idle;
-                    }
-                    int wait = Math.Max(200, iv * 1000 - (int)sw.ElapsedMilliseconds);
-                    Thread.Sleep(wait);
-                }
-            });
-            worker.IsBackground = true;
-            worker.Name = "sampler";
-            worker.Start();
-
-            // ---- serving loop: one line per connection, token first
-            IPAddress addr = IPAddress.Any;
-            try { addr = IPAddress.Parse(bind); }
-            catch { Log("bad bind '" + bind + "', using 0.0.0.0"); }
-            TcpListener listener = new TcpListener(addr, port);
-            listener.Start();
-            Log("listening on " + addr + ":" + port);
-            DateTime configStamp=configPath!=null?File.GetLastWriteTimeUtc(configPath):DateTime.MinValue;
-
-            while (true)
-            {
-                TcpClient client = null;
-                try
-                {
-                    if(configPath!=null&&File.GetLastWriteTimeUtc(configPath)!=configStamp)
-                    {
-                        try
-                        {
-                            ProbeConfig next=ProbeConfig.Load(configPath);
-                            if(next.Port!=port||next.Bind!=bind)
-                            {
-                                // Bind the replacement before releasing the working listener where possible.
-                                TcpListener replacement=new TcpListener(IPAddress.Parse(next.Bind),next.Port);
-                                if(next.Port==port){listener.Stop();try{replacement.Start();}catch{listener.Start();throw;}}
-                                else replacement.Start();
-                                listener.Stop();listener=replacement;port=next.Port;bind=next.Bind;
-                            }
-                            settings=next;h.Settings=next;token=next.Token;configStamp=File.GetLastWriteTimeUtc(configPath);Log("configuration applied");
+            if(args[0]!="--serve-config"||args.Length!=2){Console.Error.WriteLine("Use --serve-config <path>; command-line secrets are no longer supported.");return 1;}
+            string path=args[1];var h=new Holder{Settings=ProbeConfig.Load(path)};
+            var sampler=new LocalSampler();sampler.Prime();
+            var worker=new Thread(delegate(){while(true){
+                var clock=Stopwatch.StartNew();Snapshot sample;
+                try{sample=sampler.Sample(1000);}catch{sample=new Snapshot{Ok=false,Error="sampling failed"};}
+                var config=h.Settings;
+                int interval=sample.Ok&&sample.CpuPct<8&&sample.GpuPct<8&&sample.DiskActive<10?config.Idle:config.Interval;
+                h.Latest=new Packet(sample,interval);
+                Thread.Sleep(Math.Max(200,interval*1000-(int)clock.ElapsedMilliseconds));
+            }});worker.IsBackground=true;worker.Start();
+            ProbeConfig active=h.Settings;var listener=new TcpListener(IPAddress.Parse(active.Bind),active.Port);listener.Start();
+            var slots=new SemaphoreSlim(8,8);DateTime stamp=File.GetLastWriteTimeUtc(path);
+            Log("probe protocol v3 started; TLS="+(active.CertificateThumbprint.Length>0));
+            while(true){
+                if(File.GetLastWriteTimeUtc(path)!=stamp){
+                    try{
+                        var next=ProbeConfig.Load(path);
+                        if(next.CertificateThumbprint.Length>0)using(var cert=ProbeWire.ServerCertificate(next.CertificateThumbprint)){}
+                        if(next.Port!=active.Port||next.Bind!=active.Bind){
+                            var replacement=new TcpListener(IPAddress.Parse(next.Bind),next.Port);
+                            if(next.Port==active.Port){listener.Stop();try{replacement.Start();}catch{listener.Start();throw;}}
+                            else replacement.Start();listener.Stop();listener=replacement;
                         }
-                        catch(Exception){Log("configuration update rejected; retaining previous settings");configStamp=File.GetLastWriteTimeUtc(configPath);}
-                    }
-                    if(!listener.Pending()){Thread.Sleep(200);continue;}
-                    client = listener.AcceptTcpClient();
-                    if(settings!=null&&!settings.Allows(((IPEndPoint)client.Client.RemoteEndPoint).Address)){Log("rejected client "+SafeRemote(client)+" (address not allowed)");continue;}
-                    client.ReceiveTimeout = 3000;
-                    client.SendTimeout = 3000;
-                    NetworkStream ns = client.GetStream();
-
-                    string line = ReadLine(ns, 256);
-                    string payload;
-                    if (token.Length > 0 && line != token)
-                    {
-                        payload = "{\"error\":\"bad token\"}";
-                        Log("rejected client " + SafeRemote(client) + " (bad token)");
-                    }
-                    else if (h.Json.Length == 0)
-                    {
-                        payload = "{\"error\":\"no sample yet\"}";
-                    }
-                    else
-                    {
-                        payload = h.Json;
-                    }
-                    byte[] outb = Encoding.UTF8.GetBytes(payload + "\n");
-                    ns.Write(outb, 0, outb.Length);
-                    ns.Flush();
+                        active=next;h.Settings=next;Log("configuration applied");
+                    }catch{Log("configuration update rejected");}
+                    stamp=File.GetLastWriteTimeUtc(path);
                 }
-                catch (Exception ex)
-                {
-                    Log("connection error: " + ex.Message);
-                }
-                finally
-                {
-                    if (client != null) { try { client.Close(); } catch { } }
-                }
+                if(!listener.Pending()){Thread.Sleep(25);continue;}
+                TcpClient client=listener.AcceptTcpClient();
+                ProbeConfig captured=active;
+                if(!captured.Allows(((IPEndPoint)client.Client.RemoteEndPoint).Address)||!slots.Wait(0)){client.Close();continue;}
+                ThreadPool.QueueUserWorkItem(delegate(object ignored){
+                    try{
+                        // Absolute deadline includes TLS handshake, authentication and send, not just individual reads.
+                        using(client)using(var deadline=new Timer(delegate{try{client.Close();}catch{}},null,3000,Timeout.Infinite))
+                        using(var cert=captured.CertificateThumbprint.Length>0?ProbeWire.ServerCertificate(captured.CertificateThumbprint):null)
+                        using(Stream stream=ProbeWire.Server(client.GetStream(),cert)){
+                            stream.ReadTimeout=3000;stream.WriteTimeout=3000;
+                            string line=ProbeWire.ReadLine(stream,128,3000);
+                            string payload=ConstantEquals(line,captured.Token)?Response(h.Latest,h.Settings.Idle):"{\"error\":\"bad token\"}";
+                            byte[] bytes=Encoding.UTF8.GetBytes(payload+"\n");stream.Write(bytes,0,bytes.Length);stream.Flush();
+                        }
+                    }catch{Log("client request rejected or timed out");}finally{slots.Release();}
+                });
             }
+        }
+        static bool ConstantEquals(string a,string b)
+        {
+            int diff=a.Length^b.Length;int n=Math.Max(a.Length,b.Length);
+            for(int i=0;i<n;i++)diff|=(i<a.Length?a[i]:0)^(i<b.Length?b[i]:0);
+            return diff==0;
         }
 
         static string SafeRemote(TcpClient c)
         {
             try { return ((IPEndPoint)c.Client.RemoteEndPoint).Address.ToString(); }
             catch { return "?"; }
-        }
-
-        /// <summary>read one LF-terminated line (ASCII) with a hard cap</summary>
-        static string ReadLine(NetworkStream ns, int max)
-        {
-            StringBuilder sb = new StringBuilder();
-            byte[] buf = new byte[64];
-            while (sb.Length <= max)
-            {
-                int n = ns.Read(buf, 0, buf.Length);
-                if (n <= 0) break;
-                for (int i = 0; i < n; i++)
-                {
-                    if (buf[i] == (byte)'\n') return sb.ToString().Trim();
-                    sb.Append((char)buf[i]);
-                }
-            }
-            return sb.ToString().Trim();
         }
 
         /// <summary>grab a numeric field out of the JSON text without building an object</summary>
@@ -292,6 +208,9 @@ namespace Gpm
         {
             StringBuilder b = new StringBuilder(2048);
             b.Append('{');
+            b.Append("\"protocolVersion\":3,\"ok\":").Append(s.Ok?"true":"false").Append(',');
+            if(!s.Ok)Str2(b,"error","sampling failed",true);
+            Str2(b,"sampledAtUtc",s.At.ToUniversalTime().ToString("o"),true);
             Str2(b, "host", s.Host, true);
             Str2(b, "os", s.Os, true);
             Str2(b, "cpu", s.CpuName, true);

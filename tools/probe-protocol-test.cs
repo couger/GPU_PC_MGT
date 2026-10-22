@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Diagnostics;
 using System.IO;
 using System.Net;
@@ -16,7 +16,7 @@ class ProtocolTest
     static void Main(string[] args)
     {
         int port;var reserve=new TcpListener(IPAddress.Loopback,0);reserve.Start();port=((IPEndPoint)reserve.LocalEndpoint).Port;reserve.Stop();
-        string path=Path.Combine(args[0],".tmp","protocol-config.json");var cfg=new ProbeConfig{Port=port,Allowed=""};cfg.SetToken(ProbeConfig.NewToken());cfg.Save(path);string original=cfg.Token;
+        string path=Path.Combine(args[0],".tmp","protocol-config.json");var cfg=new ProbeConfig{Port=port,Allowed="",Bind="0.0.0.0",AllowInsecureLan=true};cfg.SetToken(ProbeConfig.NewToken());cfg.Save(path);string original=cfg.Token;
         var start=new ProcessStartInfo(Path.Combine(args[0],"gpm-remote.exe"),"--serve-config \""+path+"\""){UseShellExecute=false,CreateNoWindow=true,WorkingDirectory=Path.Combine(args[0],".tmp")};
         using(var process=Process.Start(start))try
         {

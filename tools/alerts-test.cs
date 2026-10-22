@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using Gpm;
 class AlertsTest
@@ -41,7 +41,7 @@ class AlertsTest
         var written=File.GetLastWriteTimeUtc(stale);System.Threading.Thread.Sleep(100);sampler.Fetch(true);
         Check(File.GetLastWriteTimeUtc(stale)==written,"repeated identical failure does not rewrite error file");
         listener=new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback,0);listener.Start();port=((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
-        var server=new System.Threading.Thread(delegate(){using(var client=listener.AcceptTcpClient())using(var stream=client.GetStream()){new StreamReader(stream).ReadLine();byte[] first=System.Text.Encoding.UTF8.GetBytes("{\"host\":\"simulated\",\"cpuPct\":42,");stream.Write(first,0,first.Length);System.Threading.Thread.Sleep(100);byte[] rest=System.Text.Encoding.UTF8.GetBytes("\"gpuTemp\":86}\n");stream.Write(rest,0,rest.Length);}listener.Stop();});server.IsBackground=true;server.Start();
+        var server=new System.Threading.Thread(delegate(){using(var client=listener.AcceptTcpClient())using(var stream=client.GetStream()){new StreamReader(stream).ReadLine();byte[] first=System.Text.Encoding.UTF8.GetBytes("{\"protocolVersion\":3,\"ok\":true,\"sampleAgeMs\":0,\"maxAgeMs\":15000,\"host\":\"simulated\",\"cpuPct\":42,");stream.Write(first,0,first.Length);System.Threading.Thread.Sleep(100);byte[] rest=System.Text.Encoding.UTF8.GetBytes("\"gpuTemp\":86}\n");stream.Write(rest,0,rest.Length);}listener.Stop();});server.IsBackground=true;server.Start();
         sampler=new RemoteSampler(new Target{Name="Simulated fragmented endpoint",Kind="probe",Host="127.0.0.1",Port=port,Token="test-only-token"});var result=sampler.Fetch(true);
         Check(result.Ok&&result.CpuPct==42&&result.GpuTempC==86,"fragmented TCP response is assembled before parsing");
     }
