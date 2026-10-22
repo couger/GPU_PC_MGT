@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
@@ -325,12 +325,8 @@ namespace Gpm
 
         static void RunSsh(Target t, string remoteCmd, string payload, StringBuilder sb)
         {
-            StringBuilder a = new StringBuilder();
-            a.Append("-o StrictHostKeyChecking=accept-new -o ConnectTimeout=8 -o NumberOfPasswordPrompts=1");
-            if (t.KnownHosts.Length > 0) a.Append(" -o UserKnownHostsFile=\"").Append(t.KnownHosts).Append("\"");
-            a.Append(" -o PreferredAuthentications=password,keyboard-interactive");
-            a.Append(" ").Append(t.User).Append("@").Append(t.Host);
-            a.Append(" \"").Append(remoteCmd).Append("\"");
+            StringBuilder a = new StringBuilder(SafeInput.SshOptions(t));
+            a.Append(" ").Append(SafeInput.Arg(remoteCmd));
             sb.AppendLine("--- ssh " + remoteCmd + (payload != null ? "  [+stdin " + payload.Length + " 字符]" : "") + " ---");
             try
             {
@@ -359,8 +355,8 @@ namespace Gpm
                         return;
                     }
                     sb.AppendLine("   退出码=" + p.ExitCode);
-                    sb.AppendLine("   stdout=[" + so.Result.Trim() + "]");
-                    sb.AppendLine("   stderr=[" + se.Result.Trim() + "]");
+                    sb.AppendLine("   stdout omitted; size="+so.Result.Length);
+                    sb.AppendLine("   stderr omitted; size="+se.Result.Length);
                 }
             }
             catch (Exception ex)

@@ -1,4 +1,4 @@
-param([string]$LocalConfigPath)
+﻿param([string]$LocalConfigPath)
 $ErrorActionPreference='Stop'
 $root=Split-Path $PSScriptRoot -Parent
 Set-Location -LiteralPath $root

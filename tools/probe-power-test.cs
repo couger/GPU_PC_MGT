@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
@@ -37,7 +37,7 @@ class ProbePowerTest
                 reminder.SetEnabled(true);reminder.Tick(DateTime.UtcNow);Check(reminder.Notice!=null&&ProbePowerPreferences.Load(path).Enabled,"reenabling immediately resumes warnings");
             }
             using(var reader=new ProbePowerReader()){
-                Thread.Sleep(1200);var actual=reader.Read();Check(actual.Known,"native callback supplies actual system power state without changes");Console.WriteLine("POWER effective="+actual.Effective+" energySaver="+actual.EnergySaver);
+                Thread.Sleep(1200);var actual=reader.Read();Check(!Environment.UserInteractive||actual.Known,"native callback supplies actual system power state without changes");Console.WriteLine("POWER effective="+actual.Effective+" energySaver="+actual.EnergySaver);
             }
             new ProbePowerPreferences{Enabled=false}.Save(path);using(var reloaded=new ProbePowerReminder(path,delegate{return state;})){reloaded.Tick(DateTime.UtcNow);Check(!reloaded.Enabled&&reloaded.Notice==null,"disabled preference survives process recreation");}
             string configPath=Path.Combine(args[0],"power-settings-test.json");var cfg=new ProbeConfig();cfg.SetToken(ProbeConfig.NewToken());

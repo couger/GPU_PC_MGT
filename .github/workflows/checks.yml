@@ -1,0 +1,36 @@
+name: Source and security checks
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Inspect all reachable history and current source
+        run: python tools/check-public-content.py --history --working-tree
+      - name: Build all four programs
+        shell: cmd
+        run: build.cmd
+      - name: Core, protocol, TLS and security tests (desktop acceptance separate)
+        shell: powershell
+        run: tools/run-tests.ps1 -SkipDesktop
+      - name: Legacy web boundary checks
+        run: node tools/web-security-test.mjs
+      - name: Check PowerShell syntax
+        shell: powershell
+        run: |
+          $bad = @()
+          Get-ChildItem tools,src -Filter *.ps1 -Recurse | ForEach-Object {
+            $tokens=$null; $errors=$null
+            [void][Management.Automation.Language.Parser]::ParseFile($_.FullName,[ref]$tokens,[ref]$errors)
+            if($errors){$bad += $_.Name}
+          }
+          if($bad){throw ('Invalid scripts: '+($bad -join ', '))}

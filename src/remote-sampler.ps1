@@ -1,4 +1,4 @@
-# GPU_PC_MGT remote sampler payload.
+﻿# GPU_PC_MGT remote sampler payload.
 # Deployed once to C:\ProgramData\GPUPCMGT\sampler.ps1 and then invoked per cycle as:
 #   powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File <that path> -WantInfo 0|1
 # NOTE: keep this file ASCII-only. It travels through an ssh command line; non-ASCII bytes

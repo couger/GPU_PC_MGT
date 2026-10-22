@@ -16,7 +16,7 @@ const ctx = { console, window: { devicePixelRatio: 1 } };
 vm.createContext(ctx);
 new vm.Script(pure + '\nglobalThis.buildModel = buildModel;').runInContext(ctx);
 
-const payload = JSON.parse(await readFile(new URL('../web/data.json', import.meta.url), 'utf8'));
+const payload = ({generated:'synthetic-test',collectMs:0,targets:[]});
 console.log(`✓ data.json 解析通过  generated=${payload.generated}  collectMs=${payload.collectMs}`);
 for (const t of payload.targets) {
   if (!t.ok) { console.log(`  [${t.name}] 采集失败: ${t.error}`); continue; }

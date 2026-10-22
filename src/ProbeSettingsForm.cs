@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Drawing;
 using System.IO;
 using System.Net.NetworkInformation;
@@ -54,7 +54,7 @@ namespace Gpm
             _acMode=PowerChoice("接通电源",450,true);_dcMode=PowerChoice("使用电池",490,false);
             _powerHint=new Label{Location=new Point(20,532),Size=new Size(540,42),ForeColor=Color.LightSkyBlue};Controls.Add(_powerHint);
             Button save=Button("保存配置",20,580,115);save.Click+=delegate{try{SaveFields();status.Text="已保存，探针会自动应用；修改端口请检查防火墙规则。";}catch(Exception ex){status.Text=ex.Message;}};
-            Button copy=Button("复制连接凭据",145,580,145);copy.Click+=delegate{try{SaveFields();Clipboard.SetText(_config.Profile());status.Text="已复制连接信息，在监控端设置中点击“粘贴连接凭据”。";}catch(Exception ex){status.Text=ex.Message;}};
+            Button copy=Button("复制连接凭据",145,580,145);copy.Click+=delegate{try{SaveFields();Clipboard.SetText(_config.Profile());status.Text="已复制（含秘密，请勿公开或同步剪贴板）；到监控端粘贴。";}catch(Exception ex){status.Text=ex.Message;}};
             Button rotate=Button("重新生成凭据",300,580,145);rotate.Click+=delegate
             {
                 if(MessageBox.Show(this,"重新生成后旧凭据失效，所有监控端需要重新粘贴连接凭据。继续？","更新凭据",MessageBoxButtons.OKCancel,MessageBoxIcon.Warning)!=DialogResult.OK)return;
@@ -91,7 +91,7 @@ namespace Gpm
             var t=new TextBox{Text=value,Location=new Point(180,y),Size=new Size(375,29)};Controls.Add(t);return t;
         }
         Button Button(string label,int x,int y,int width){var b=new Button{Text=label,Location=new Point(x,y),Size=new Size(width,32),ForeColor=Color.FromArgb(18,30,46),BackColor=Color.LightSkyBlue,UseVisualStyleBackColor=false,FlatStyle=FlatStyle.Flat};Controls.Add(b);return b;}
-        ProbeConfig ReadFields(){var c=new ProbeConfig{Host=host.Text.Trim(),Bind=bind.Text.Trim(),Port=Int32.Parse(port.Text),Allowed=allowed.Text.Trim(),Interval=Int32.Parse(interval.Text),Idle=Int32.Parse(idle.Text),TokenProtected=_config.TokenProtected};c.Validate();return c;}
+        ProbeConfig ReadFields(){var c=new ProbeConfig{Host=host.Text.Trim(),Bind=bind.Text.Trim(),Port=Int32.Parse(port.Text),Allowed=allowed.Text.Trim(),Interval=Int32.Parse(interval.Text),Idle=Int32.Parse(idle.Text),TokenProtected=_config.TokenProtected,CertificateThumbprint=_config.CertificateThumbprint,AllowInsecureLan=_config.AllowInsecureLan};c.Validate();return c;}
         void SaveFields(){var next=ReadFields();next.Save(_path);_config=next;}
     }
 }

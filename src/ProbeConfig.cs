@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Net;
 using System.Security.Cryptography;
@@ -12,12 +12,18 @@ namespace Gpm
     public sealed class ProbeConfig
     {
         public int Port=9187;
-        public string Bind="0.0.0.0";
+        public string Bind="127.0.0.1";
+        public string CertificateThumbprint="";
+        public bool AllowInsecureLan;
         public int Interval=2, Idle=10;
         public string Allowed="";
         public string TokenProtected="";
         public string Host=Environment.MachineName;
-        public static string DefaultPath { get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),"GPUPCMGT", "probe-config.json"); } }
+        public static string DefaultPath { get {
+            string root=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),"GPUPCMGT");
+            string modern=Path.Combine(root,"config","probe-config.json");
+            return File.Exists(modern)?modern:Path.Combine(root,"probe-config.json");
+        } }
         [ScriptIgnore] public string Token { get { return Encoding.UTF8.GetString(ProtectedData.Unprotect(Convert.FromBase64String(TokenProtected),null,DataProtectionScope.LocalMachine)); } }
         public void SetToken(string token) { TokenProtected=Convert.ToBase64String(ProtectedData.Protect(Encoding.UTF8.GetBytes(token),null,DataProtectionScope.LocalMachine)); }
         public static string NewToken() { byte[] bytes=new byte[32];using(var rng=RandomNumberGenerator.Create())rng.GetBytes(bytes);return Convert.ToBase64String(bytes).TrimEnd('=').Replace('+','-').Replace('/','_'); }
@@ -42,7 +48,9 @@ namespace Gpm
             foreach(string rule in Rules()) { if(rule=="*")continue; ParseRule(rule,out ip); }
             string token=Token;if(token.Length<16||token.Length>128)throw new ArgumentException("凭据长度需为 16–128 字符");
             foreach(char ch in token)if(ch<33||ch>126)throw new ArgumentException("凭据不能含空格或非 ASCII 字符");
-            if(String.IsNullOrWhiteSpace(Host)||Host.IndexOfAny(new char[]{'\r','\n',' '})>=0)throw new ArgumentException("连接地址无效");
+            SafeInput.Host(Host);
+            if(CertificateThumbprint.Length>0&&!System.Text.RegularExpressions.Regex.IsMatch(CertificateThumbprint,@"\A(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})\z"))throw new ArgumentException("证书标识无效");
+            if(!IPAddress.IsLoopback(IPAddress.Parse(Bind))&&CertificateThumbprint.Length==0&&!AllowInsecureLan)throw new ArgumentException("非本机监听必须配置 TLS 证书；旧探针请运行安全升级脚本");
         }
         string[] Rules() { return (Allowed??"").Split(new char[]{',',';','\r','\n',' '},StringSplitOptions.RemoveEmptyEntries); }
         static int ParseRule(string rule,out IPAddress address)
@@ -65,18 +73,21 @@ namespace Gpm
         }
         public void Save(string path)
         {
-            Validate();string temp=path+"."+Guid.NewGuid().ToString("N")+".tmp";
-            try {File.WriteAllText(temp,new JavaScriptSerializer().Serialize(this),Encoding.UTF8);if(File.Exists(path))File.Replace(temp,path,null);else File.Move(temp,path);}finally{if(File.Exists(temp))File.Delete(temp);}
+            Validate();PrivateFile.Write(path,new JavaScriptSerializer().Serialize(this));
         }
-        public string Profile() { return new JavaScriptSerializer().Serialize(new ConnectionProfile{Version=1,Name=Environment.MachineName,Host=Host,Port=Port,Token=Token}); }
+        public string Profile() {
+            string pin="";if(CertificateThumbprint.Length>0)using(var cert=ProbeWire.ServerCertificate(CertificateThumbprint))pin=ProbeWire.Fingerprint(cert);
+            return new JavaScriptSerializer().Serialize(new ConnectionProfile{Version=2,Name=Environment.MachineName,Host=Host,Port=Port,Token=Token,TlsFingerprint=pin});
+        }
     }
     public sealed class ConnectionProfile
     {
-        public int Version;public string Name,Host,Token;public int Port;
+        public int Version;public string Name,Host,Token,TlsFingerprint="";public int Port;
         public static ConnectionProfile Parse(string text)
         {
             var p=new JavaScriptSerializer().Deserialize<ConnectionProfile>(text);
-            if(p==null||p.Version!=1||String.IsNullOrWhiteSpace(p.Host)||p.Port<1||p.Port>65535||String.IsNullOrEmpty(p.Token)||p.Token.Length<16||p.Token.Length>128)throw new ArgumentException("连接凭据格式无效");
+            if(p==null||(p.Version!=1&&p.Version!=2)||String.IsNullOrWhiteSpace(p.Host)||p.Port<1||p.Port>65535||String.IsNullOrEmpty(p.Token)||p.Token.Length<16||p.Token.Length>128)throw new ArgumentException("连接凭据格式无效");
+            SafeInput.Host(p.Host);ProbeWire.ValidatePin(p.TlsFingerprint);
             foreach(char ch in p.Token)if(ch<33||ch>126)throw new ArgumentException("凭据字符无效");return p;
         }
     }

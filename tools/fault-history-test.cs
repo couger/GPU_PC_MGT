@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Imaging;
@@ -25,6 +25,7 @@ class Test
         var shortBuffer=new FaultRecorder();shortBuffer.Observe(target,Good(60),now.AddSeconds(-2));Check(shortBuffer.Observe(target,Bad(),now).Samples.Length==2,"short startup retains available data without padding");
         var threads=new System.Threading.Thread[4];var parallel=new FaultRecorder();for(int n=0;n<4;n++){int key=n;threads[n]=new System.Threading.Thread(delegate(){var t=new Target{Name="线程"+key};for(int i=0;i<100;i++)parallel.Observe(t,Good(75),now.AddMilliseconds(i));parallel.Observe(t,Bad(),now.AddSeconds(1));});threads[n].Start();}foreach(var thread in threads)thread.Join();Check(parallel.Records(now.AddSeconds(1)).Length==4,"parallel target samplers record safely");
         for(int i=-300;i<0;i+=2)FaultHistory.Recorder.Observe(target,Good(65+(i+300)*0.08),now.AddSeconds(i));FaultHistory.Recorder.Observe(target,Bad(),now);
+        if(Array.IndexOf(args,"--headless")>=0)return;
         Application.EnableVisualStyles();Application.SetCompatibleTextRenderingDefault(false);Type type=typeof(Config).Assembly.GetType("Gpm.FaultHistoryForm");
         using(var form=(Form)Activator.CreateInstance(type,BindingFlags.Public|BindingFlags.NonPublic|BindingFlags.Instance,null,new object[0],null))
         {

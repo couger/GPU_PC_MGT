@@ -233,6 +233,7 @@ function agoText(){
   return s < 1.5 ? '刚刚更新' : s.toFixed(0) + ' 秒前更新';
 }
 function byLength(a, b){ return a.length - b.length || a.localeCompare(b); }
+function escapeHtml(value){return String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 
 /* ---------- 画图 ---------- */
 function drawSeries(canvas, series, opts){
@@ -509,7 +510,7 @@ function updateHost(t){
   if (m.volumes.length){
     r.vols.innerHTML = m.volumes.map(v => {
       const pct = v.sizeBytes ? (v.sizeBytes - v.freeBytes) / v.sizeBytes * 100 : 0;
-      return '<div class="vol"><div class="vt"><span>' + v.drive + '</span><span>'
+      return '<div class="vol"><div class="vt"><span>' + escapeHtml(v.drive) + '</span><span>'
         + fmtBytes(v.freeBytes) + ' 可用 / ' + fmtBytes(v.sizeBytes) + '</span></div>'
         + '<div class="bar"><div class="bar-in" style="width:' + pct.toFixed(1) + '%"></div></div></div>';
     }).join('');
