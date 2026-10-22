@@ -66,6 +66,13 @@ if($existing){
     foreach($name in @('TokenProtected','Interval','Idle')){if($null -ne $json.$name){$cfg.$name=$json.$name}}
 }else{$cfg.SetToken([Gpm.ProbeConfig]::NewToken())}
 $cert=$null
+function Wait-Unlocked([string]$Path){
+    if(!(Test-Path -LiteralPath $Path)){return}
+    for($i=0;$i -lt 80;$i++){
+        try{$file=[IO.File]::Open($Path,[IO.FileMode]::Open,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None);$file.Dispose();return}catch{Start-Sleep -Milliseconds 250}
+    }
+    throw 'Probe executable remains locked; stopped installation before overwrite'
+}
 try{
     $cert=New-SelfSignedCertificate -Subject 'CN=GPUPCMGT-Probe' -CertStoreLocation Cert:\LocalMachine\My -KeyAlgorithm RSA -KeyLength 2048 -KeyExportPolicy NonExportable -NotAfter (Get-Date).AddYears(2)
     $cfg.Host=$HostAddress;$cfg.Bind='0.0.0.0';$cfg.Port=$Port;$cfg.Allowed=$MonitorAddress;$cfg.CertificateThumbprint=$cert.Thumbprint;$cfg.AllowInsecureLan=$false
@@ -73,7 +80,8 @@ try{
     foreach($name in $oldTasks.Keys){Stop-ScheduledTask -TaskName $name}
     # Only stop processes from the verified installation paths.
     Get-Process gpm-remote,gpm-probe-tray -ErrorAction SilentlyContinue | Where-Object {$_.Path -in @($core,$tray,(Join-Path $base 'gpm-remote.exe'))} | Stop-Process
-    Start-Sleep -Milliseconds 500
+    Wait-Unlocked $core
+    Wait-Unlocked $tray
     Copy-Item -LiteralPath (Join-Path $source 'gpm-remote.exe') -Destination $core -Force
     $coreAcl=New-Object Security.AccessControl.FileSecurity
     $coreAcl.SetAccessRuleProtection($true,$false)
@@ -107,7 +115,7 @@ try{
 }catch{
     foreach($name in $taskNames){Stop-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue}
     Get-Process gpm-remote,gpm-probe-tray -ErrorAction SilentlyContinue | Where-Object {$_.Path -in @($core,$tray)} | Stop-Process
-    foreach($file in $saved.Keys){Copy-Item -LiteralPath $saved[$file] -Destination $file -Force}
+    foreach($file in $saved.Keys){Wait-Unlocked $file;Copy-Item -LiteralPath $saved[$file] -Destination $file -Force}
     if(!$saved.ContainsKey($config) -and (Test-Path -LiteralPath $config)){Remove-Item -LiteralPath $config}
     Get-NetFirewallRule -Name 'GPUPCMGT-Probe-TLS' -ErrorAction SilentlyContinue | Remove-NetFirewallRule
     if($oldFirewallSpec){New-NetFirewallRule -Name 'GPUPCMGT-Probe-TLS' -DisplayName 'GPU PC probe TLS (restored)' -Direction Inbound -Action Allow -Protocol TCP @oldFirewallSpec | Out-Null}
